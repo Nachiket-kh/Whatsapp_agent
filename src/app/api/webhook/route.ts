@@ -135,24 +135,25 @@ export async function POST(request: NextRequest) {
     }
     if (!reply) {
       const prompt = await readFile(path.join(process.cwd(), "AGENT_PROMPT.md"), "utf8");
-      const geminiKey = process.env.GEMINI_API_KEY;
-      if (!geminiKey) throw new Error("GEMINI_API_KEY is not configured.");
-      const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, {
+      const openaiKey = process.env.OPENAI_API_KEY;
+      if (!openaiKey) throw new Error("OPENAI_API_KEY is not configured.");
+      const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          systemInstruction: { parts: [{ text: prompt }] },
-          contents: [{ role: "user", parts: [{ text: messageText }] }],
-          generationConfig: { temperature: 0.4, maxOutputTokens: 350 },
+          model: "gpt-4o",
+          messages: [{ role: "system", content: prompt }, { role: "user", content: messageText }],
+          temperature: 0.4,
+          max_tokens: 350,
         }),
       });
-      if (!geminiResponse.ok) {
-        const detail = await geminiResponse.text();
-        console.error("Gemini generation failed", { status: geminiResponse.status, detail });
-        throw new Error("Gemini could not generate a response.");
+      if (!openaiResponse.ok) {
+        const detail = await openaiResponse.text();
+        console.error("OpenAI generation failed", { status: openaiResponse.status, detail });
+        throw new Error("OpenAI could not generate a response.");
       }
-      const geminiPayload = await geminiResponse.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
-      reply = geminiPayload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("").trim();
+      const openaiPayload = await openaiResponse.json() as { choices?: Array<{ message?: { content?: string } }> };
+      reply = openaiPayload.choices?.[0]?.message?.content?.trim();
     }
     if (!reply) throw new Error("OpenAI returned an empty response.");
 
