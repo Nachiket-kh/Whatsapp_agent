@@ -5,7 +5,11 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-type WhatsAppMessage = { from?: string; text?: { body?: string } };
+type WhatsAppMessage = {
+  from?: string;
+  text?: { body?: string };
+  interactive?: { button_reply?: { title?: string }; list_reply?: { title?: string } };
+};
 type WebhookPayload = {
   entry?: Array<{ changes?: Array<{ value?: { messages?: WhatsAppMessage[] } }> }>;
 };
@@ -49,7 +53,9 @@ export async function POST(request: NextRequest) {
     const payload = (await request.json()) as WebhookPayload;
     const incoming = payload.entry?.flatMap((entry) => entry.changes ?? []).flatMap((change) => change.value?.messages ?? [])[0];
     const phoneNumber = incoming?.from;
-    const messageText = incoming?.text?.body?.trim();
+    const messageText = incoming?.text?.body?.trim()
+      ?? incoming?.interactive?.button_reply?.title?.trim()
+      ?? incoming?.interactive?.list_reply?.title?.trim();
 
     // Meta also posts delivery/read status events. They do not contain a customer message.
     if (!phoneNumber || !messageText) {
