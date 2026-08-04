@@ -60,7 +60,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const payload = await request.json() as Record<string, unknown>;
     const supabase = serviceClient();
     const { data: savedConnection, error: connectionError } = await supabase.from("evolution_connections").select("*").eq("instance_name", instance).maybeSingle();
-    if (connectionError || !savedConnection || !token || secretHash(token) !== savedConnection.webhook_secret_hash) { console.error("Evolution webhook authentication failed", { instance, connectionError }); return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+    const cloudSecret = process.env.EVOLUTION_WEBHOOK_SECRET;
+    const usesConnectionSecret = Boolean(token && savedConnection && secretHash(token) === savedConnection.webhook_secret_hash);
+    const usesCloudSecret = Boolean(token && cloudSecret && token === cloudSecret);
+    // The stable secret is for Evolution Cloud's global Webhook screen; the
+    // per-connection secret remains supported for the in-app configuration.
+    if (connectionError || !savedConnection || !token || (!usesConnectionSecret && !usesCloudSecret)) { console.error("Evolution webhook authentication failed", { instance, connectionError }); return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
     const event = String(payload.event ?? "");
     // Evolution v2 emits event names such as `messages.upsert`, whereas older
     // releases use `MESSAGES_UPSERT`.  Normalise both spellings.
