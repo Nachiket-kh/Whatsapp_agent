@@ -46,6 +46,11 @@ export async function POST(request: NextRequest) {
     const origin = process.env.NEXT_PUBLIC_APP_URL ?? request.nextUrl.origin;
     const webhookUrl = `${origin}/api/evolution/webhook/${encodeURIComponent(instanceName)}?token=${secret}`;
     const connection: EvolutionConnection = { server_url: serverUrl, instance_name: instanceName, api_key_encrypted: encrypt(body.apiKey) };
+    try {
+      await evolutionRequest(connection, "/", { method: "GET" });
+    } catch (error) {
+      throw new Error(`Cannot reach Evolution API at ${serverUrl}. Use its API root, not the /manager page. ${error instanceof Error ? error.message : ""}`);
+    }
     let provider: Record<string, unknown>;
     try {
       provider = await evolutionRequest(connection, "/instance/create", { method: "POST", body: JSON.stringify({ instanceName, integration: "WHATSAPP-BAILEYS", qrcode: true, webhook: { enabled: true, url: webhookUrl, events: ["MESSAGES_UPSERT", "CONNECTION_UPDATE"] } }) });

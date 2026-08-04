@@ -1,7 +1,19 @@
 import { decrypt } from "@/lib/crypto";
 
 export type EvolutionConnection = { server_url: string; instance_name: string; api_key_encrypted: string };
-export function normaliseServerUrl(value: string) { return value.replace(/\/+$/, ""); }
+/** The Evolution Manager is a UI, while API requests must target the API root. */
+export function normaliseServerUrl(value: string) {
+  let url: URL;
+  try { url = new URL(value.trim()); } catch {
+    throw new Error("Enter a complete Evolution API URL, for example https://your-server.example.com.");
+  }
+  // Cloud Station prominently displays this Manager URL; accept it safely.
+  if (url.pathname === "/manager" || url.pathname.startsWith("/manager/")) url.pathname = "/";
+  if (url.hostname.endsWith(".cloud-station.app") && url.protocol === "http:") url.protocol = "https:";
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/+$/, "");
+}
 
 export async function evolutionRequest(connection: EvolutionConnection, endpoint: string, init: RequestInit = {}) {
   const response = await fetch(`${normaliseServerUrl(connection.server_url)}${endpoint}`, {
