@@ -86,7 +86,10 @@ export async function POST(request: NextRequest) {
     } catch (stateError) { console.error("Evolution connection status check after setup failed", stateError); }
     const { error: dbError } = await serviceClient().from("evolution_connections").upsert({ hospital_id: hospitalId, server_url: serverUrl, instance_name: instanceName, api_key_encrypted: connection.api_key_encrypted, webhook_secret_hash: secretHash(secret), qr_code: status === "connected" ? null : qrCode, status, last_error: null, updated_at: new Date().toISOString() }, { onConflict: "hospital_id" });
     if (dbError) { console.error("Supabase Evolution connection upsert failed", dbError); throw dbError; }
-    return NextResponse.json({ status, qrCode: status === "connected" ? null : qrCode });
+    // Return this once to the authenticated hospital administrator so it can
+    // be pasted into Evolution Cloud's global Webhook UI without guessing the
+    // generated secret. It is never returned by the regular GET status call.
+    return NextResponse.json({ status, qrCode: status === "connected" ? null : qrCode, webhookUrl });
   } catch (error) {
     console.error("Evolution connection setup failed", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Connection setup failed." }, { status: 500 });
