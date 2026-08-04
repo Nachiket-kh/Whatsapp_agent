@@ -26,7 +26,7 @@ const selectedLanguage = (text: string): Language | null => {
   if (["3", "marathi", "mr"].includes(value)) return "Marathi";
   return null;
 };
-const invalid = (message: string, next: string) => `Invalid ${message}.\n\n${next}`;
+const invalid = (message: string, previousPrompt: string) => `I didn’t understand that ${message}. Did you mean to continue this appointment booking?\n\nPlease reply with one of the options below, or with the requested information.\n\n${previousPrompt}`;
 const validPatientName = (text: string) => /^[\p{L}][\p{L}\s.'-]{1,59}$/u.test(text.trim());
 const validIsoDate = (value: string) => { const date = new Date(`${value}T00:00:00Z`); return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value; };
 const languageOf = (text: string): Language => /ळ|मध्ये|आहे/.test(text) ? "Marathi" : /[\u0900-\u097F]/.test(text) ? "Hindi" : "English";
@@ -170,9 +170,20 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (messageError) throw messageError;
     const { data: draft } = await supabase.from("appointment_drafts").select("*").eq("conversation_id", conversation.id).maybeSingle();
     let reply: string | undefined; const state = draft as Draft | null;
+    const wantsToCancel = /\b(cancel|stop|quit)\b|रद्द|थांबवा/i.test(incoming.text);
+    const wantsToRestart = /\b(restart|start over|new appointment|book another)\b|पुन्हा|नवीन अपॉइंटमेंट/i.test(incoming.text);
+    if (state && wantsToCancel) {
+      const { error } = await supabase.from("appointment_drafts").delete().eq("conversation_id", conversation.id);
+      if (error) console.error("Booking cancellation failed", error);
+      reply = "Your unfinished appointment booking has been cancelled. Send a message whenever you want to start a new booking.";
+    }
+    else if (state && wantsToRestart) {
+      await supabase.from("appointment_drafts").upsert({ conversation_id: conversation.id, language: state.language, stage: "language", patient_name: null, doctor_or_department: null, preferred_date: null, offered_slots: null, updated_at: now });
+      reply = `Let’s start a new appointment booking.\n\n${languageMenu}`;
+    }
     // Start every new chat with an explicit language choice. This prevents a
     // greeting from falling through to the general AI and echoing the message.
-    if (!state) {
+    else if (!state) {
       await supabase.from("appointment_drafts").upsert({ conversation_id: conversation.id, language: languageOf(incoming.text), stage: "language" });
       reply = languageMenu;
     }
@@ -186,7 +197,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
     else if (state?.stage === "name") {
       if (!validPatientName(incoming.text)) {
-        reply = invalid("name", "Please enter your full name using letters only (for example: Riya Patil).");
+        reply = invalid("name", `${words[state.language].welcome}\n\nExample: Riya Patil`);
       } else {
       await supabase.from("patients").upsert({ hospital_id: hospitalId, phone_number: incoming.phone, full_name: incoming.text.trim(), last_seen: now }, { onConflict: "hospital_id,phone_number" });
       const { data: doctors, error: doctorsError } = await supabase.from("doctors").select("id,name,department").eq("hospital_id", hospitalId).eq("enabled", true).order("department").order("name");
@@ -212,7 +223,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     else if (state?.stage === "date") {
       const choice = incoming.text.trim();
       const date = choice === "1" ? indianToday() : choice === "2" ? tomorrowInIndia() : choice === "3" ? null : await dateWithGemini(incoming.text);
-      if (!date) reply = choice === "3" ? invalid("custom date", "Please reply with a real future date in YYYY-MM-DD format, for example 2026-08-10.") : invalid("date choice", dateMenu);
+      if (!date) reply = choice === "3" ? invalid("custom date", `${dateMenu}\n\nFor option 3, reply with a real future date such as 2026-08-10.`) : invalid("date choice", dateMenu);
       else {
         const [{ data: doctor, error: doctorError }, { data: hospitalHours, error: hoursError }, { data: booked, error: bookedError }] = await Promise.all([
           supabase.from("doctors").select("id,name,department,working_days,start_time,end_time,consultation_duration").eq("id", state.doctor_or_department!).eq("hospital_id", hospitalId).single(),
