@@ -47,8 +47,8 @@ const listSlots = (prefix: string, slots: string[], suffix: string) => `${prefix
 const doctorsPrompt = (language: Language, doctors: DoctorOption[]) => {
   if (!doctors.length) return language === "Hindi" ? "अभी कोई डॉक्टर उपलब्ध नहीं है। कृपया अस्पताल से संपर्क करें।" : language === "Marathi" ? "सध्या कोणतेही डॉक्टर उपलब्ध नाहीत. कृपया रुग्णालयाशी संपर्क साधा." : "There are no doctors available right now. Please contact the hospital.";
   const heading = language === "Hindi" ? "उपलब्ध डॉक्टर और विभाग:" : language === "Marathi" ? "उपलब्ध डॉक्टर आणि विभाग:" : "Available doctors and departments:";
-  const instruction = language === "Hindi" ? "कृपया डॉक्टर या विभाग का नाम लिखें।" : language === "Marathi" ? "कृपया डॉक्टर किंवा विभागाचे नाव लिहा." : "Please type a doctor or department name.";
-  return `${heading}\n${doctors.map((doctor) => `• ${doctor.name} — ${doctor.department}`).join("\n")}\n\n${instruction}`;
+  const instruction = language === "Hindi" ? "कृपया 1, 2, 3 में जवाब दें या डॉक्टर/विभाग का नाम लिखें।" : language === "Marathi" ? "कृपया 1, 2, 3 मध्ये उत्तर द्या किंवा डॉक्टर/विभागाचे नाव लिहा." : "Reply with 1, 2, 3, or type a doctor or department name.";
+  return `${heading}\n${doctors.map((doctor, index) => `${index + 1}. ${doctor.name} — ${doctor.department}`).join("\n")}\n\n${instruction}`;
 };
 
 function messageFrom(payload: Record<string, unknown>) {
@@ -193,7 +193,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (doctorsError) console.error("Doctor selection lookup failed", doctorsError);
       const available = (doctors ?? []) as DoctorOption[];
       const search = incoming.text.toLowerCase();
-      const directMatch = available.find((item) => item.name.toLowerCase().includes(search) || item.department.toLowerCase().includes(search) || search.includes(item.name.toLowerCase()) || search.includes(item.department.toLowerCase()));
+      const option = Number(incoming.text.trim());
+      const directMatch = Number.isInteger(option) && option >= 1 && option <= available.length ? available[option - 1] : available.find((item) => item.name.toLowerCase().includes(search) || item.department.toLowerCase().includes(search) || search.includes(item.name.toLowerCase()) || search.includes(item.department.toLowerCase()));
       const doctor = directMatch ?? await chooseDoctorWithGemini(incoming.text, available);
       if (!doctor) reply = doctorsPrompt(state.language, available);
       else {
@@ -237,7 +238,30 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         }
       }
     }
-    else if (state?.stage === "time") { const option = Number(incoming.text.trim()); const selected = Number.isInteger(option) && option >= 1 && option <= (state.offered_slots?.length ?? 0) ? state.offered_slots?.[option - 1] : timeOf(incoming.text); if (!selected || !state.offered_slots?.includes(selected)) reply = listSlots(words[state.language].unavailable, state.offered_slots ?? [], words[state.language].choose); else { const { data: patient } = await supabase.from("patients").select("id,full_name").eq("hospital_id", hospitalId).eq("phone_number", incoming.phone).single(); const { data: doctor } = await supabase.from("doctors").select("id,name,department").eq("hospital_id", hospitalId).eq("id", state.doctor_or_department!).single(); const { error } = await supabase.from("appointments").insert({ hospital_id: hospitalId, patient_id: patient?.id, conversation_id: conversation.id, doctor_id: doctor?.id, patient_name: state.patient_name ?? patient?.full_name ?? "Patient", phone_number: incoming.phone, doctor_name: doctor?.name, department: doctor?.department, appointment_date: state.preferred_date, appointment_time: selected }); if (error) reply = listSlots(words[state.language].unavailable, state.offered_slots ?? [], words[state.language].choose); else { await supabase.from("appointment_drafts").delete().eq("conversation_id", conversation.id); reply = `${words[state.language].confirmed}\n${doctor?.name} • ${state.preferred_date} • ${display(selected)}`; } } }
+    else if (state?.stage === "time") {
+      const option = Number(incoming.text.trim());
+      const selected = Number.isInteger(option) && option >= 1 && option <= (state.offered_slots?.length ?? 0) ? state.offered_slots?.[option - 1] : timeOf(incoming.text);
+      if (!selected || !state.offered_slots?.includes(selected)) reply = listSlots(words[state.language].unavailable, state.offered_slots ?? [], words[state.language].choose);
+      else {
+        const [{ data: patient, error: patientError }, { data: doctor, error: doctorError }] = await Promise.all([
+          supabase.from("patients").select("id,full_name").eq("hospital_id", hospitalId).eq("phone_number", incoming.phone).single(),
+          supabase.from("doctors").select("id,name,department").eq("hospital_id", hospitalId).eq("id", state.doctor_or_department!).single(),
+        ]);
+        if (patientError || doctorError || !patient || !doctor) throw patientError ?? doctorError ?? new Error("Patient or doctor record was not found.");
+        const { error } = await supabase.from("appointments").insert({ hospital_id: hospitalId, patient_id: patient.id, conversation_id: conversation.id, doctor_id: doctor.id, patient_name: state.patient_name ?? patient.full_name ?? "Patient", phone_number: incoming.phone, doctor_name: doctor.name, department: doctor.department, appointment_date: state.preferred_date, appointment_time: selected });
+        if (error?.code === "23505") {
+          console.error("Appointment slot became unavailable", error);
+          reply = listSlots(words[state.language].unavailable, state.offered_slots ?? [], words[state.language].choose);
+        } else if (error) {
+          console.error("Appointment insert failed", error);
+          reply = "We could not save the appointment. Please try again or contact the hospital.";
+        } else {
+          const { error: draftError } = await supabase.from("appointment_drafts").delete().eq("conversation_id", conversation.id);
+          if (draftError) console.error("Appointment draft cleanup failed", draftError);
+          reply = `${words[state.language].confirmed}\n${doctor.name} • ${state.preferred_date} • ${display(selected)}`;
+        }
+      }
+    }
     if (!reply) reply = await generalReply(incoming.text);
     if (!reply) throw new Error("AI returned an empty reply.");
     const { error: replyError } = await supabase.from("messages").insert({ conversation_id: conversation.id, role: "assistant", content: reply });
