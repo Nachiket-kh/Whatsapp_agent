@@ -276,7 +276,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         } else {
           const { error: draftError } = await supabase.from("appointment_drafts").delete().eq("conversation_id", conversation.id);
           if (draftError) console.error("Appointment draft cleanup failed", draftError);
-          reply = `${words[state.language].confirmed}\n${doctor.name} • ${state.preferred_date} • ${display(selected)}`;
+          reply = `${words[state.language].confirmed}\n${doctor.name} • ${state.preferred_date} • ${display(selected)}\n\nTo book another appointment, reply: new appointment`;
         }
       }
     }
