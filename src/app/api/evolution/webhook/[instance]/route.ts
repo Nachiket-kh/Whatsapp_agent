@@ -26,6 +26,9 @@ const selectedLanguage = (text: string): Language | null => {
   if (["3", "marathi", "mr"].includes(value)) return "Marathi";
   return null;
 };
+const invalid = (message: string, next: string) => `Invalid ${message}.\n\n${next}`;
+const validPatientName = (text: string) => /^[\p{L}][\p{L}\s.'-]{1,59}$/u.test(text.trim());
+const validIsoDate = (value: string) => { const date = new Date(`${value}T00:00:00Z`); return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value; };
 const languageOf = (text: string): Language => /ळ|मध्ये|आहे/.test(text) ? "Marathi" : /[\u0900-\u097F]/.test(text) ? "Hindi" : "English";
 const dateOf = (text: string) => text.match(/\b(20\d{2}-\d{2}-\d{2})\b/)?.[1] ?? null;
 const timeOf = (text: string) => { const m = text.match(/\b(\d{1,2}):(\d{2})\s*(AM|PM)?\b/i); if (!m) return null; let h = +m[1]; if (m[3]?.toUpperCase() === "PM" && h < 12) h += 12; if (m[3]?.toUpperCase() === "AM" && h === 12) h = 0; return `${String(h).padStart(2, "0")}:${m[2]}`; };
@@ -109,7 +112,7 @@ async function chooseDoctorWithGemini(text: string, doctors: DoctorOption[]) {
 
 async function dateWithGemini(text: string) {
   const exact = dateOf(text);
-  if (exact) return exact;
+  if (exact) return validIsoDate(exact) && exact >= indianToday() ? exact : null;
   const key = process.env.GEMINI_API_KEY;
   if (!key) return null;
   const today = indianToday();
@@ -175,18 +178,22 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
     else if (state.stage === "language") {
       const language = selectedLanguage(incoming.text);
-      if (!language) reply = languageMenu;
+      if (!language) reply = invalid("language choice", languageMenu);
       else {
         await supabase.from("appointment_drafts").update({ language, stage: "name", updated_at: now }).eq("conversation_id", conversation.id);
         reply = words[language].welcome;
       }
     }
     else if (state?.stage === "name") {
-      await supabase.from("patients").upsert({ hospital_id: hospitalId, phone_number: incoming.phone, full_name: incoming.text, last_seen: now }, { onConflict: "hospital_id,phone_number" });
+      if (!validPatientName(incoming.text)) {
+        reply = invalid("name", "Please enter your full name using letters only (for example: Riya Patil).");
+      } else {
+      await supabase.from("patients").upsert({ hospital_id: hospitalId, phone_number: incoming.phone, full_name: incoming.text.trim(), last_seen: now }, { onConflict: "hospital_id,phone_number" });
       const { data: doctors, error: doctorsError } = await supabase.from("doctors").select("id,name,department").eq("hospital_id", hospitalId).eq("enabled", true).order("department").order("name");
       if (doctorsError) console.error("Available doctors lookup failed", doctorsError);
-      await supabase.from("appointment_drafts").update({ patient_name: incoming.text, stage: "doctor", updated_at: now }).eq("conversation_id", conversation.id);
+      await supabase.from("appointment_drafts").update({ patient_name: incoming.text.trim(), stage: "doctor", updated_at: now }).eq("conversation_id", conversation.id);
       reply = doctorsPrompt(state.language, (doctors ?? []) as DoctorOption[]);
+      }
     }
     else if (state?.stage === "doctor") {
       const { data: doctors, error: doctorsError } = await supabase.from("doctors").select("id,name,department").eq("hospital_id", hospitalId).eq("enabled", true).order("department").order("name");
@@ -196,7 +203,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       const option = Number(incoming.text.trim());
       const directMatch = Number.isInteger(option) && option >= 1 && option <= available.length ? available[option - 1] : available.find((item) => item.name.toLowerCase().includes(search) || item.department.toLowerCase().includes(search) || search.includes(item.name.toLowerCase()) || search.includes(item.department.toLowerCase()));
       const doctor = directMatch ?? await chooseDoctorWithGemini(incoming.text, available);
-      if (!doctor) reply = doctorsPrompt(state.language, available);
+      if (!doctor) reply = invalid("doctor or department choice", doctorsPrompt(state.language, available));
       else {
         await supabase.from("appointment_drafts").update({ doctor_or_department: doctor.id, stage: "date", updated_at: now }).eq("conversation_id", conversation.id);
         reply = `${doctor.name} — ${doctor.department}\n\n${dateMenu}`;
@@ -205,7 +212,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     else if (state?.stage === "date") {
       const choice = incoming.text.trim();
       const date = choice === "1" ? indianToday() : choice === "2" ? tomorrowInIndia() : choice === "3" ? null : await dateWithGemini(incoming.text);
-      if (!date) reply = choice === "3" ? "Please reply with your custom date in YYYY-MM-DD format." : dateMenu;
+      if (!date) reply = choice === "3" ? invalid("custom date", "Please reply with a real future date in YYYY-MM-DD format, for example 2026-08-10.") : invalid("date choice", dateMenu);
       else {
         const [{ data: doctor, error: doctorError }, { data: hospitalHours, error: hoursError }, { data: booked, error: bookedError }] = await Promise.all([
           supabase.from("doctors").select("id,name,department,working_days,start_time,end_time,consultation_duration").eq("id", state.doctor_or_department!).eq("hospital_id", hospitalId).single(),
@@ -241,7 +248,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     else if (state?.stage === "time") {
       const option = Number(incoming.text.trim());
       const selected = Number.isInteger(option) && option >= 1 && option <= (state.offered_slots?.length ?? 0) ? state.offered_slots?.[option - 1] : timeOf(incoming.text);
-      if (!selected || !state.offered_slots?.includes(selected)) reply = listSlots(words[state.language].unavailable, state.offered_slots ?? [], words[state.language].choose);
+      if (!selected || !state.offered_slots?.includes(selected)) reply = invalid("time-slot choice", listSlots(words[state.language].unavailable, state.offered_slots ?? [], words[state.language].choose));
       else {
         const [{ data: patient, error: patientError }, { data: doctor, error: doctorError }] = await Promise.all([
           supabase.from("patients").select("id,full_name").eq("hospital_id", hospitalId).eq("phone_number", incoming.phone).single(),
