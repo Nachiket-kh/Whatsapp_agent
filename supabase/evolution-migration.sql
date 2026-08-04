@@ -62,4 +62,19 @@ create policy "service role manages hospitals" on public.hospitals for all to se
 create policy "service role manages hospital members" on public.hospital_members for all to service_role using (true) with check (true);
 create policy "service role manages evolution connections" on public.evolution_connections for all to service_role using (true) with check (true);
 
+-- Replace the earlier global authenticated policies with tenant-scoped policies.
+drop policy if exists "authenticated users read conversations" on public.conversations;
+drop policy if exists "authenticated users read messages" on public.messages;
+drop policy if exists "authenticated users manage patients" on public.patients;
+drop policy if exists "authenticated users manage doctors" on public.doctors;
+drop policy if exists "authenticated users manage appointments" on public.appointments;
+drop policy if exists "authenticated users manage hospital settings" on public.hospital_settings;
+create policy "hospital members manage conversations" on public.conversations for all to authenticated using (public.is_hospital_member(hospital_id)) with check (public.is_hospital_member(hospital_id));
+create policy "hospital members manage patients" on public.patients for all to authenticated using (public.is_hospital_member(hospital_id)) with check (public.is_hospital_member(hospital_id));
+create policy "hospital members manage doctors" on public.doctors for all to authenticated using (public.is_hospital_member(hospital_id)) with check (public.is_hospital_member(hospital_id));
+create policy "hospital members manage appointments" on public.appointments for all to authenticated using (public.is_hospital_member(hospital_id)) with check (public.is_hospital_member(hospital_id));
+create policy "hospital members manage settings" on public.hospital_settings for all to authenticated using (public.is_hospital_member(hospital_id)) with check (public.is_hospital_member(hospital_id));
+create policy "hospital members manage messages" on public.messages for all to authenticated using (exists (select 1 from public.conversations c where c.id = conversation_id and public.is_hospital_member(c.hospital_id))) with check (exists (select 1 from public.conversations c where c.id = conversation_id and public.is_hospital_member(c.hospital_id)));
+create policy "hospital members manage appointment drafts" on public.appointment_drafts for all to authenticated using (exists (select 1 from public.conversations c where c.id = conversation_id and public.is_hospital_member(c.hospital_id))) with check (exists (select 1 from public.conversations c where c.id = conversation_id and public.is_hospital_member(c.hospital_id)));
+
 alter publication supabase_realtime add table public.evolution_connections;
