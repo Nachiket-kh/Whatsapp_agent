@@ -27,6 +27,16 @@ export async function evolutionRequest(connection: EvolutionConnection, endpoint
   return body as Record<string, unknown>;
 }
 
+export function connectionStatusFromProvider(body: Record<string, unknown>) {
+  const instance = body.instance as Record<string, unknown> | undefined;
+  const raw = instance?.state ?? body.state ?? body.connectionStatus ?? body.status;
+  if (typeof raw !== "string") return null;
+  const state = raw.toLowerCase();
+  if (["open", "connected"].includes(state)) return "connected" as const;
+  if (["close", "closed", "disconnected", "logout"].includes(state)) return "disconnected" as const;
+  return "connecting" as const;
+}
+
 export function extractQr(body: Record<string, unknown>) {
   const qrcode = body.qrcode as { base64?: string; code?: string } | undefined;
   const nested = (body.base64 ?? (body.instance as { qrcode?: string } | undefined)?.qrcode) as string | undefined;

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { encrypt, secretHash } from "@/lib/crypto";
 import { ensureHospital, serviceClient } from "@/lib/hospital";
-import { evolutionRequest, extractQr, normaliseServerUrl, type EvolutionConnection } from "@/lib/evolution";
+import { connectionStatusFromProvider, evolutionRequest, extractQr, normaliseServerUrl, type EvolutionConnection } from "@/lib/evolution";
 
 export const runtime = "nodejs";
 
@@ -26,9 +26,26 @@ async function configureWebhook(connection: EvolutionConnection, webhookUrl: str
 export async function GET() {
   try {
     const hospitalId = await currentHospital();
-    const { data, error } = await serviceClient().from("evolution_connections").select("server_url,instance_name,status,qr_code,last_error,updated_at").eq("hospital_id", hospitalId).maybeSingle();
+    const { data, error } = await serviceClient().from("evolution_connections").select("server_url,instance_name,status,qr_code,last_error,updated_at,api_key_encrypted").eq("hospital_id", hospitalId).maybeSingle();
     if (error) throw error;
-    return NextResponse.json({ connection: data ?? null });
+    if (!data) return NextResponse.json({ connection: null });
+
+    // The connection can be completed outside this app (for example through
+    // Cloud Station's QR screen), so always reconcile the stored status.
+    let connection = data;
+    try {
+      const provider = await evolutionRequest(data, `/instance/connectionState/${encodeURIComponent(data.instance_name)}`);
+      const status = connectionStatusFromProvider(provider);
+      if (status && status !== data.status) {
+        const { error: updateError } = await serviceClient().from("evolution_connections").update({ status, qr_code: status === "connected" ? null : data.qr_code, last_error: null, updated_at: new Date().toISOString() }).eq("hospital_id", hospitalId);
+        if (updateError) console.error("Supabase Evolution status update failed", updateError);
+        connection = { ...data, status, qr_code: status === "connected" ? null : data.qr_code, last_error: null, updated_at: new Date().toISOString() };
+      }
+    } catch (providerError) {
+      console.error("Evolution connection status check failed", providerError);
+    }
+    const { api_key_encrypted: _key, ...safeConnection } = connection;
+    return NextResponse.json({ connection: safeConnection });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load connection." }, { status: 401 });
   }
@@ -60,9 +77,14 @@ export async function POST(request: NextRequest) {
     }
     await configureWebhook(connection, webhookUrl);
     const qrCode = extractQr(provider);
-    const { error: dbError } = await serviceClient().from("evolution_connections").upsert({ hospital_id: hospitalId, server_url: serverUrl, instance_name: instanceName, api_key_encrypted: connection.api_key_encrypted, webhook_secret_hash: secretHash(secret), qr_code: qrCode, status: qrCode ? "qr_pending" : "connecting", last_error: null, updated_at: new Date().toISOString() }, { onConflict: "hospital_id" });
+    let status: "connected" | "disconnected" | "connecting" | "qr_pending" = qrCode ? "qr_pending" : "connecting";
+    try {
+      const state = await evolutionRequest(connection, `/instance/connectionState/${encodeURIComponent(instanceName)}`);
+      status = connectionStatusFromProvider(state) ?? status;
+    } catch (stateError) { console.error("Evolution connection status check after setup failed", stateError); }
+    const { error: dbError } = await serviceClient().from("evolution_connections").upsert({ hospital_id: hospitalId, server_url: serverUrl, instance_name: instanceName, api_key_encrypted: connection.api_key_encrypted, webhook_secret_hash: secretHash(secret), qr_code: status === "connected" ? null : qrCode, status, last_error: null, updated_at: new Date().toISOString() }, { onConflict: "hospital_id" });
     if (dbError) { console.error("Supabase Evolution connection upsert failed", dbError); throw dbError; }
-    return NextResponse.json({ status: qrCode ? "qr_pending" : "connecting", qrCode });
+    return NextResponse.json({ status, qrCode: status === "connected" ? null : qrCode });
   } catch (error) {
     console.error("Evolution connection setup failed", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Connection setup failed." }, { status: 500 });
