@@ -18,7 +18,9 @@ async function configureWebhook(connection: EvolutionConnection, webhookUrl: str
   try {
     await evolutionRequest(connection, `/webhook/set/${encodeURIComponent(connection.instance_name)}`, {
       method: "POST",
-      body: JSON.stringify({ enabled: true, url: webhookUrl, webhook_by_events: false, events: ["MESSAGES_UPSERT", "CONNECTION_UPDATE"] }),
+      // Evolution API v2 uses camelCase field names.  Keep one endpoint so
+      // the token query string remains intact for every event delivery.
+      body: JSON.stringify({ enabled: true, url: webhookUrl, webhookByEvents: false, webhookBase64: false, events: ["MESSAGES_UPSERT", "CONNECTION_UPDATE"] }),
     });
   } catch (error) { console.error("Evolution webhook configuration failed", error); }
 }

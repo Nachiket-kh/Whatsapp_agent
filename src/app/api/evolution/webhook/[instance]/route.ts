@@ -62,7 +62,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { data: savedConnection, error: connectionError } = await supabase.from("evolution_connections").select("*").eq("instance_name", instance).maybeSingle();
     if (connectionError || !savedConnection || !token || secretHash(token) !== savedConnection.webhook_secret_hash) { console.error("Evolution webhook authentication failed", { instance, connectionError }); return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
     const event = String(payload.event ?? "");
-    if (event.includes("CONNECTION") || event.includes("QRCODE")) {
+    // Evolution v2 emits event names such as `messages.upsert`, whereas older
+    // releases use `MESSAGES_UPSERT`.  Normalise both spellings.
+    const eventName = event.toUpperCase().replace(/[.\-]/g, "_");
+    console.log("Evolution webhook event received", { instance, event });
+    if (eventName.includes("CONNECTION") || eventName.includes("QRCODE")) {
       const data = payload.data as Record<string, unknown> | undefined;
       const state = String(data?.state ?? data?.status ?? "").toLowerCase();
       const qr = String(data?.qrcode ?? data?.base64 ?? "") || null;
@@ -71,7 +75,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (error) console.error("Evolution connection status update failed", error);
       return NextResponse.json({ ok: true });
     }
-    if (!event.includes("MESSAGES_UPSERT")) return NextResponse.json({ ok: true });
+    if (!eventName.includes("MESSAGES_UPSERT")) return NextResponse.json({ ok: true });
     const incoming = messageFrom(payload);
     if (!incoming) return NextResponse.json({ ok: true });
     const now = new Date().toISOString();
