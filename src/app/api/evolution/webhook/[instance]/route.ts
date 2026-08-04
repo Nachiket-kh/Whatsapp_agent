@@ -18,6 +18,7 @@ const words = {
   Marathi: { welcome: "नमस्कार 👋 ABC Hospital मध्ये आपले स्वागत आहे. कृपया आपले नाव सांगा?", doctor: "आपल्याला कोणत्या डॉक्टरांना किंवा विभागाला भेटायचे आहे?", date: "आपल्याला कोणती तारीख हवी आहे? कृपया YYYY-MM-DD मध्ये सांगा.", slots: "उपलब्ध वेळा आहेत:\n", choose: "कृपया पसंतीची वेळ सांगा.", confirmed: "आपली अपॉइंटमेंट निश्चित झाली आहे.", unavailable: "माफ करा, ही वेळ उपलब्ध नाही. उपलब्ध वेळा आहेत:\n" },
 };
 const languageMenu = "Welcome to ABC Hospital.\n\nPlease select your language for appointment booking:\n1. English\n2. Hindi\n3. Marathi\n\nReply with 1, 2, or 3.";
+const dateMenu = "Please select an appointment date:\n1. Today\n2. Tomorrow\n3. Custom date (reply with YYYY-MM-DD)";
 const selectedLanguage = (text: string): Language | null => {
   const value = text.trim().toLowerCase();
   if (["1", "english", "en"].includes(value)) return "English";
@@ -35,9 +36,14 @@ const indianToday = () => {
   const get = (part: string) => parts.find((item) => item.type === part)?.value ?? "";
   return `${get("year")}-${get("month")}-${get("day")}`;
 };
+const tomorrowInIndia = () => {
+  const [year, month, day] = indianToday().split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + 1));
+  return date.toISOString().slice(0, 10);
+};
 const weekdayFor = (date: string) => new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`));
 const display = (slot: string) => { const [h, m] = slot.split(":").map(Number); return `${((h + 11) % 12) + 1}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`; };
-const listSlots = (prefix: string, slots: string[], suffix: string) => `${prefix}${slots.map((slot) => `• ${display(slot)}`).join("\n")}\n${suffix}`;
+const listSlots = (prefix: string, slots: string[], suffix: string) => `${prefix}${slots.map((slot, index) => `${index + 1}. ${display(slot)}`).join("\n")}\n${suffix}`;
 const doctorsPrompt = (language: Language, doctors: DoctorOption[]) => {
   if (!doctors.length) return language === "Hindi" ? "अभी कोई डॉक्टर उपलब्ध नहीं है। कृपया अस्पताल से संपर्क करें।" : language === "Marathi" ? "सध्या कोणतेही डॉक्टर उपलब्ध नाहीत. कृपया रुग्णालयाशी संपर्क साधा." : "There are no doctors available right now. Please contact the hospital.";
   const heading = language === "Hindi" ? "उपलब्ध डॉक्टर और विभाग:" : language === "Marathi" ? "उपलब्ध डॉक्टर आणि विभाग:" : "Available doctors and departments:";
@@ -192,12 +198,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (!doctor) reply = doctorsPrompt(state.language, available);
       else {
         await supabase.from("appointment_drafts").update({ doctor_or_department: doctor.id, stage: "date", updated_at: now }).eq("conversation_id", conversation.id);
-        reply = `${doctor.name} — ${doctor.department}\n\n${words[state.language].date}`;
+        reply = `${doctor.name} — ${doctor.department}\n\n${dateMenu}`;
       }
     }
     else if (state?.stage === "date") {
-      const date = await dateWithGemini(incoming.text);
-      if (!date) reply = `${words[state.language].date}\n(You can also say “tomorrow” or “next Monday”.)`;
+      const choice = incoming.text.trim();
+      const date = choice === "1" ? indianToday() : choice === "2" ? tomorrowInIndia() : choice === "3" ? null : await dateWithGemini(incoming.text);
+      if (!date) reply = choice === "3" ? "Please reply with your custom date in YYYY-MM-DD format." : dateMenu;
       else {
         const [{ data: doctor, error: doctorError }, { data: hospitalHours, error: hoursError }, { data: booked, error: bookedError }] = await Promise.all([
           supabase.from("doctors").select("id,name,department,working_days,start_time,end_time,consultation_duration").eq("id", state.doctor_or_department!).eq("hospital_id", hospitalId).single(),
@@ -211,7 +218,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         const hours = hospitalHours as HospitalHours | null;
         if (!selectedDoctor) throw new Error("Selected doctor no longer exists.");
         if (!selectedDoctor.working_days.includes(weekdayFor(date))) {
-          reply = `${selectedDoctor.name} is not available on ${weekdayFor(date)}. ${words[state.language].date}`;
+          reply = `${selectedDoctor.name} is not available on ${weekdayFor(date)}.\n\n${dateMenu}`;
         } else {
           const start = Math.max(minutes(selectedDoctor.start_time), minutes(hours?.opening_time ?? selectedDoctor.start_time));
           const end = Math.min(minutes(selectedDoctor.end_time), minutes(hours?.closing_time ?? selectedDoctor.end_time));
@@ -230,7 +237,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         }
       }
     }
-    else if (state?.stage === "time") { const selected = timeOf(incoming.text); if (!selected || !state.offered_slots?.includes(selected)) reply = listSlots(words[state.language].unavailable, state.offered_slots ?? [], words[state.language].choose); else { const { data: patient } = await supabase.from("patients").select("id,full_name").eq("hospital_id", hospitalId).eq("phone_number", incoming.phone).single(); const { data: doctor } = await supabase.from("doctors").select("id,name,department").eq("hospital_id", hospitalId).eq("id", state.doctor_or_department!).single(); const { error } = await supabase.from("appointments").insert({ hospital_id: hospitalId, patient_id: patient?.id, conversation_id: conversation.id, doctor_id: doctor?.id, patient_name: state.patient_name ?? patient?.full_name ?? "Patient", phone_number: incoming.phone, doctor_name: doctor?.name, department: doctor?.department, appointment_date: state.preferred_date, appointment_time: selected }); if (error) reply = listSlots(words[state.language].unavailable, state.offered_slots ?? [], words[state.language].choose); else { await supabase.from("appointment_drafts").delete().eq("conversation_id", conversation.id); reply = `${words[state.language].confirmed}\n${doctor?.name} • ${state.preferred_date} • ${display(selected)}`; } } }
+    else if (state?.stage === "time") { const option = Number(incoming.text.trim()); const selected = Number.isInteger(option) && option >= 1 && option <= (state.offered_slots?.length ?? 0) ? state.offered_slots?.[option - 1] : timeOf(incoming.text); if (!selected || !state.offered_slots?.includes(selected)) reply = listSlots(words[state.language].unavailable, state.offered_slots ?? [], words[state.language].choose); else { const { data: patient } = await supabase.from("patients").select("id,full_name").eq("hospital_id", hospitalId).eq("phone_number", incoming.phone).single(); const { data: doctor } = await supabase.from("doctors").select("id,name,department").eq("hospital_id", hospitalId).eq("id", state.doctor_or_department!).single(); const { error } = await supabase.from("appointments").insert({ hospital_id: hospitalId, patient_id: patient?.id, conversation_id: conversation.id, doctor_id: doctor?.id, patient_name: state.patient_name ?? patient?.full_name ?? "Patient", phone_number: incoming.phone, doctor_name: doctor?.name, department: doctor?.department, appointment_date: state.preferred_date, appointment_time: selected }); if (error) reply = listSlots(words[state.language].unavailable, state.offered_slots ?? [], words[state.language].choose); else { await supabase.from("appointment_drafts").delete().eq("conversation_id", conversation.id); reply = `${words[state.language].confirmed}\n${doctor?.name} • ${state.preferred_date} • ${display(selected)}`; } } }
     if (!reply) reply = await generalReply(incoming.text);
     if (!reply) throw new Error("AI returned an empty reply.");
     const { error: replyError } = await supabase.from("messages").insert({ conversation_id: conversation.id, role: "assistant", content: reply });
