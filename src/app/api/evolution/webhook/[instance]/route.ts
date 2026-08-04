@@ -7,13 +7,21 @@ import { serviceClient } from "@/lib/hospital";
 
 export const runtime = "nodejs";
 
-type Draft = { language: "English" | "Hindi" | "Marathi"; stage: string; patient_name: string | null; doctor_or_department: string | null; preferred_date: string | null; offered_slots: string[] | null };
+type Language = "English" | "Hindi" | "Marathi";
+type Draft = { language: Language; stage: string; patient_name: string | null; doctor_or_department: string | null; preferred_date: string | null; offered_slots: string[] | null };
 const words = {
   English: { welcome: "Hello 👋 Welcome to ABC Hospital. May I know your name?", doctor: "Which doctor or department would you like to visit?", date: "What date would you prefer? Please reply in YYYY-MM-DD format.", slots: "Available timings are:\n", choose: "Please reply with your preferred time.", confirmed: "Your appointment is confirmed.", unavailable: "Sorry, that time is unavailable. Available timings are:\n" },
   Hindi: { welcome: "नमस्ते 👋 ABC Hospital में आपका स्वागत है। कृपया अपना नाम बताएं?", doctor: "आप किस डॉक्टर या विभाग में जाना चाहते हैं?", date: "आप कौन-सी तारीख पसंद करेंगे? कृपया YYYY-MM-DD में बताएं।", slots: "उपलब्ध समय हैं:\n", choose: "कृपया अपना पसंदीदा समय बताएं।", confirmed: "आपकी अपॉइंटमेंट कन्फर्म हो गई है।", unavailable: "माफ़ कीजिए, यह समय उपलब्ध नहीं है। उपलब्ध समय हैं:\n" },
   Marathi: { welcome: "नमस्कार 👋 ABC Hospital मध्ये आपले स्वागत आहे. कृपया आपले नाव सांगा?", doctor: "आपल्याला कोणत्या डॉक्टरांना किंवा विभागाला भेटायचे आहे?", date: "आपल्याला कोणती तारीख हवी आहे? कृपया YYYY-MM-DD मध्ये सांगा.", slots: "उपलब्ध वेळा आहेत:\n", choose: "कृपया पसंतीची वेळ सांगा.", confirmed: "आपली अपॉइंटमेंट निश्चित झाली आहे.", unavailable: "माफ करा, ही वेळ उपलब्ध नाही. उपलब्ध वेळा आहेत:\n" },
 };
-type Language = keyof typeof words;
+const languageMenu = "Welcome to ABC Hospital.\n\nPlease select your language for appointment booking:\n1. English\n2. Hindi\n3. Marathi\n\nReply with 1, 2, or 3.";
+const selectedLanguage = (text: string): Language | null => {
+  const value = text.trim().toLowerCase();
+  if (["1", "english", "en"].includes(value)) return "English";
+  if (["2", "hindi", "hi"].includes(value)) return "Hindi";
+  if (["3", "marathi", "mr"].includes(value)) return "Marathi";
+  return null;
+};
 const languageOf = (text: string): Language => /ळ|मध्ये|आहे/.test(text) ? "Marathi" : /[\u0900-\u097F]/.test(text) ? "Hindi" : "English";
 const dateOf = (text: string) => text.match(/\b(20\d{2}-\d{2}-\d{2})\b/)?.[1] ?? null;
 const timeOf = (text: string) => { const m = text.match(/\b(\d{1,2}):(\d{2})\s*(AM|PM)?\b/i); if (!m) return null; let h = +m[1]; if (m[3]?.toUpperCase() === "PM" && h < 12) h += 12; if (m[3]?.toUpperCase() === "AM" && h === 12) h = 0; return `${String(h).padStart(2, "0")}:${m[2]}`; };
@@ -92,8 +100,20 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (messageError) throw messageError;
     const { data: draft } = await supabase.from("appointment_drafts").select("*").eq("conversation_id", conversation.id).maybeSingle();
     let reply: string | undefined; const state = draft as Draft | null;
-    const intent = /appointment|book|doctor|hospital|अपॉइंटमेंट|बुक|डॉक्टर|भेट/i.test(incoming.text);
-    if (!state && intent) { const language = languageOf(incoming.text); await supabase.from("appointment_drafts").upsert({ conversation_id: conversation.id, language, stage: "name" }); reply = words[language].welcome; }
+    // Start every new chat with an explicit language choice. This prevents a
+    // greeting from falling through to the general AI and echoing the message.
+    if (!state) {
+      await supabase.from("appointment_drafts").upsert({ conversation_id: conversation.id, language: languageOf(incoming.text), stage: "language" });
+      reply = languageMenu;
+    }
+    else if (state.stage === "language") {
+      const language = selectedLanguage(incoming.text);
+      if (!language) reply = languageMenu;
+      else {
+        await supabase.from("appointment_drafts").update({ language, stage: "name", updated_at: now }).eq("conversation_id", conversation.id);
+        reply = words[language].welcome;
+      }
+    }
     else if (state?.stage === "name") { await supabase.from("patients").upsert({ hospital_id: hospitalId, phone_number: incoming.phone, full_name: incoming.text, last_seen: now }, { onConflict: "hospital_id,phone_number" }); await supabase.from("appointment_drafts").update({ patient_name: incoming.text, stage: "doctor", updated_at: now }).eq("conversation_id", conversation.id); reply = words[state.language].doctor; }
     else if (state?.stage === "doctor") { const { data: doctors } = await supabase.from("doctors").select("id,name,department").eq("hospital_id", hospitalId).eq("enabled", true); const search = incoming.text.toLowerCase(); const doctor = doctors?.find((item) => item.name.toLowerCase().includes(search) || item.department.toLowerCase().includes(search) || search.includes(item.name.toLowerCase()) || search.includes(item.department.toLowerCase())); if (!doctor) reply = words[state.language].doctor; else { await supabase.from("appointment_drafts").update({ doctor_or_department: doctor.id, stage: "date", updated_at: now }).eq("conversation_id", conversation.id); reply = words[state.language].date; } }
     else if (state?.stage === "date") { const date = dateOf(incoming.text); if (!date) reply = words[state.language].date; else { const { data: doctor } = await supabase.from("doctors").select("*").eq("id", state.doctor_or_department!).eq("hospital_id", hospitalId).single(); const { data: booked } = await supabase.from("appointments").select("appointment_time").eq("hospital_id", hospitalId).eq("doctor_id", doctor?.id).eq("appointment_date", date).eq("status", "upcoming"); const busy = new Set((booked ?? []).map((item) => String(item.appointment_time).slice(0, 5))); const start = Number(String(doctor?.start_time).slice(0, 2)) * 60 + Number(String(doctor?.start_time).slice(3, 5)); const end = Number(String(doctor?.end_time).slice(0, 2)) * 60 + Number(String(doctor?.end_time).slice(3, 5)); const slots = Array.from({ length: Math.max(0, Math.floor((end - start) / Number(doctor?.consultation_duration))) }, (_, i) => { const value = start + i * Number(doctor?.consultation_duration); return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`; }).filter((slot) => !busy.has(slot)).slice(0, 3); if (!slots.length) reply = "No slots are available for this date. Please choose another date."; else { await supabase.from("appointment_drafts").update({ preferred_date: date, offered_slots: slots, stage: "time", updated_at: now }).eq("conversation_id", conversation.id); reply = listSlots(words[state.language].slots, slots, words[state.language].choose); } } }
