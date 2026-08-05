@@ -16,12 +16,12 @@ export async function ensureHospital(userId: string) {
     // their most recently configured communication channel so both WhatsApp
     // and voice bookings appear in the same dashboard.
     const ids = memberships.map((membership) => membership.hospital_id);
-    const [evolutionResult, vapiResult] = await Promise.all([
-      supabase.from("evolution_connections").select("hospital_id, updated_at").in("hospital_id", ids),
+    const [metaResult, vapiResult] = await Promise.all([
+      supabase.from("meta_connections").select("hospital_id, updated_at").in("hospital_id", ids),
       supabase.from("vapi_connections").select("hospital_id, updated_at").in("hospital_id", ids),
     ]);
 
-    if (evolutionResult.error) throw evolutionResult.error;
+    if (metaResult.error && !["42P01", "PGRST205"].includes(metaResult.error.code ?? "")) throw metaResult.error;
     // Older installations may not have run the Vapi migration yet. In that
     // case continue using the WhatsApp connection instead of blocking login.
     if (vapiResult.error && !["42P01", "PGRST205"].includes(vapiResult.error.code ?? "")) {
@@ -29,7 +29,7 @@ export async function ensureHospital(userId: string) {
     }
 
     const activeConnections = [
-      ...(evolutionResult.data ?? []),
+      ...(metaResult.data ?? []),
       ...(vapiResult.data ?? []),
     ].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
 
