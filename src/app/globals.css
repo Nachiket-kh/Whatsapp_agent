@@ -1,8 +1,8 @@
 :root { color-scheme: dark; --bg: #081413; --panel: #102222; --line: #25413d; --muted: #91a9a4; --accent: #13aa7b; }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: #f5f7fb; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
-button, input, textarea { font: inherit; }
-textarea { background:#0d1424; border:1px solid var(--line); color:white; border-radius:9px; padding:12px; resize:vertical; }
+button, input, textarea, select { font: inherit; }
+textarea, select { background:#0d1424; border:1px solid var(--line); color:white; border-radius:9px; padding:12px; resize:vertical; }
 .shell { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
 .auth-card { width: min(100%, 410px); background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 32px; box-shadow: 0 24px 80px #0005; }
 .connection-card { width:min(100%,650px); background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:32px; box-shadow:0 24px 80px #0005; }.connection-status{display:flex;justify-content:space-between;align-items:center;border:1px solid var(--line);padding:12px 14px;border-radius:10px;margin:20px 0;color:#b9d8d0}.connection-status.connected{border-color:#1f8f6e;color:#9cf0cf}.connection-status.qr_pending,.connection-status.connecting{border-color:#b49037;color:#ffe098}.connection-status.disconnected{border-color:#834149;color:#ffbac1}.qr{margin-top:26px;text-align:center;border-top:1px solid var(--line);padding-top:22px}.qr img{width:min(100%,280px);background:#fff;padding:10px;border-radius:10px}.back-link{display:block;margin-top:22px;color:#91e4c5;text-decoration:none}
