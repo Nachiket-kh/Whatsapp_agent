@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "CreatorOS | Hospital AI Agents",
+  title: "CreatorOS CareFlow | WhatsApp AI Agent",
   description: "WhatsApp and voice AI appointment automation for hospitals",
 };
 
