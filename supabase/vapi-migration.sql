@@ -17,6 +17,18 @@ create policy "members manage vapi connections" on public.vapi_connections for a
 create policy "members read vapi calls" on public.vapi_call_logs for select to authenticated using (public.is_hospital_member(hospital_id));
 create policy "service role manages vapi connections" on public.vapi_connections for all to service_role using (true) with check (true);
 create policy "service role manages vapi calls" on public.vapi_call_logs for all to service_role using (true) with check (true);
-alter publication supabase_realtime add table public.vapi_call_logs;
-
+-- Supabase errors if the table is already present, so make Realtime setup
+-- safe to rerun after a partially completed migration.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication p
+    join pg_publication_rel pr on pr.prpubid = p.oid
+    join pg_class c on c.oid = pr.prrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    where p.pubname = 'supabase_realtime' and n.nspname = 'public' and c.relname = 'vapi_call_logs'
+  ) then
+    alter publication supabase_realtime add table public.vapi_call_logs;
+  end if;
+end $$;
 
