@@ -9,8 +9,14 @@ create table if not exists public.vapi_call_logs (
   vapi_call_id text not null, caller_phone text, transcript text, duration_seconds integer, booking_status text not null default 'not_booked', status text not null default 'completed', failure_reason text, started_at timestamptz, ended_at timestamptz, created_at timestamptz not null default now(), unique(hospital_id,vapi_call_id)
 );
 alter table public.vapi_connections enable row level security; alter table public.vapi_call_logs enable row level security;
+drop policy if exists "members manage vapi connections" on public.vapi_connections;
+drop policy if exists "members read vapi calls" on public.vapi_call_logs;
+drop policy if exists "service role manages vapi connections" on public.vapi_connections;
+drop policy if exists "service role manages vapi calls" on public.vapi_call_logs;
 create policy "members manage vapi connections" on public.vapi_connections for all to authenticated using (public.is_hospital_member(hospital_id)) with check (public.is_hospital_member(hospital_id));
 create policy "members read vapi calls" on public.vapi_call_logs for select to authenticated using (public.is_hospital_member(hospital_id));
 create policy "service role manages vapi connections" on public.vapi_connections for all to service_role using (true) with check (true);
 create policy "service role manages vapi calls" on public.vapi_call_logs for all to service_role using (true) with check (true);
 alter publication supabase_realtime add table public.vapi_call_logs;
+
+
