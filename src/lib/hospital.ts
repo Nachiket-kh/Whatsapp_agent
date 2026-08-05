@@ -12,12 +12,28 @@ export async function ensureHospital(userId: string) {
   const { data: memberships, error } = await supabase.from("hospital_members").select("hospital_id").eq("user_id", userId);
   if (error) throw error;
   if (memberships?.length) {
-    // A user can have legacy/demo hospitals. Always open the hospital that owns
-    // their active WhatsApp connection so incoming bookings appear immediately.
+    // A user can have legacy/demo hospitals. Prefer the hospital attached to
+    // their most recently configured communication channel so both WhatsApp
+    // and voice bookings appear in the same dashboard.
     const ids = memberships.map((membership) => membership.hospital_id);
-    const { data: connection, error: connectionError } = await supabase.from("evolution_connections").select("hospital_id").in("hospital_id", ids).order("updated_at", { ascending: false }).limit(1).maybeSingle();
-    if (connectionError) throw connectionError;
-    return (connection?.hospital_id ?? memberships[0].hospital_id) as string;
+    const [evolutionResult, vapiResult] = await Promise.all([
+      supabase.from("evolution_connections").select("hospital_id, updated_at").in("hospital_id", ids),
+      supabase.from("vapi_connections").select("hospital_id, updated_at").in("hospital_id", ids),
+    ]);
+
+    if (evolutionResult.error) throw evolutionResult.error;
+    // Older installations may not have run the Vapi migration yet. In that
+    // case continue using the WhatsApp connection instead of blocking login.
+    if (vapiResult.error && !["42P01", "PGRST205"].includes(vapiResult.error.code ?? "")) {
+      console.error("Could not load Vapi hospital connection", vapiResult.error);
+    }
+
+    const activeConnections = [
+      ...(evolutionResult.data ?? []),
+      ...(vapiResult.data ?? []),
+    ].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+
+    return (activeConnections[0]?.hospital_id ?? memberships[0].hospital_id) as string;
   }
   const { data: hospital, error: hospitalError } = await supabase.from("hospitals").insert({ name: "ABC Hospital", owner_id: userId }).select("id").single();
   if (hospitalError || !hospital) throw hospitalError ?? new Error("Could not create hospital.");
