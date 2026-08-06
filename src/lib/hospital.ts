@@ -16,9 +16,10 @@ export async function ensureHospital(userId: string) {
     // their most recently configured communication channel so both WhatsApp
     // and voice bookings appear in the same dashboard.
     const ids = memberships.map((membership) => membership.hospital_id);
-    const [metaResult, vapiResult] = await Promise.all([
+    const [metaResult, vapiResult, evolutionResult] = await Promise.all([
       supabase.from("meta_connections").select("hospital_id, updated_at").in("hospital_id", ids),
       supabase.from("vapi_connections").select("hospital_id, updated_at").in("hospital_id", ids),
+      supabase.from("evolution_connections").select("hospital_id, updated_at").in("hospital_id", ids),
     ]);
 
     if (metaResult.error && !["42P01", "PGRST205"].includes(metaResult.error.code ?? "")) throw metaResult.error;
@@ -27,10 +28,14 @@ export async function ensureHospital(userId: string) {
     if (vapiResult.error && !["42P01", "PGRST205"].includes(vapiResult.error.code ?? "")) {
       console.error("Could not load Vapi hospital connection", vapiResult.error);
     }
+    if (evolutionResult.error && !["42P01", "PGRST205"].includes(evolutionResult.error.code ?? "")) {
+      console.error("Could not load Evolution hospital connection", evolutionResult.error);
+    }
 
     const activeConnections = [
       ...(metaResult.data ?? []),
       ...(vapiResult.data ?? []),
+      ...(evolutionResult.data ?? []),
     ].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
 
     return (activeConnections[0]?.hospital_id ?? memberships[0].hospital_id) as string;

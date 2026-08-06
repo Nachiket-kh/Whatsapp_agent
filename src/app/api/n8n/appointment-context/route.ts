@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { hospitalForPhoneNumber, requireN8n } from "@/lib/n8n";
+import { hospitalForChannel, requireN8n } from "@/lib/n8n";
 import { serviceClient } from "@/lib/hospital";
 
 export const runtime = "nodejs";
@@ -7,9 +7,9 @@ export const runtime = "nodejs";
 export async function GET(request: NextRequest) {
   const denied = requireN8n(request); if (denied) return denied;
   try {
-    const phoneNumberId = request.nextUrl.searchParams.get("phoneNumberId")?.trim() ?? "";
-    if (!/^\d+$/.test(phoneNumberId)) return NextResponse.json({ error: "phoneNumberId is required." }, { status: 400 });
-    const hospitalId = await hospitalForPhoneNumber(phoneNumberId);
+    const phoneNumberId = request.nextUrl.searchParams.get("phoneNumberId")?.trim(); const instanceName = request.nextUrl.searchParams.get("instanceName")?.trim();
+    if ((!phoneNumberId || !/^\d+$/.test(phoneNumberId)) && !instanceName) return NextResponse.json({ error: "phoneNumberId or instanceName is required." }, { status: 400 });
+    const hospitalId = await hospitalForChannel({ phoneNumberId, instanceName });
     const db = serviceClient();
     const [{ data: settings, error: settingsError }, { data: doctors, error: doctorsError }] = await Promise.all([
       db.from("hospital_settings").select("hospital_name,departments,opening_time,closing_time,slot_duration,emergency_number").eq("hospital_id", hospitalId).maybeSingle(),

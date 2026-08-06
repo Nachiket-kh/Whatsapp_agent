@@ -1,5 +1,18 @@
 # CareFlow n8n WhatsApp booking flow
 
+## Evolution API workflow (recommended)
+
+Use `evolution-whatsapp-appointment-workflow.json` when WhatsApp is connected through Evolution API. It does not need Meta credentials inside n8n: Evolution sends events to the n8n Webhook, and CareFlow uses the encrypted Evolution credentials saved at `/evolution` to send replies.
+
+1. Run `supabase/evolution-migration.sql` in Supabase SQL Editor.
+2. In CareFlow, open `/evolution` and save the Evolution server URL, API key, and instance name. The status must be **Connected** after you scan the QR in Evolution.
+3. Import `evolution-whatsapp-appointment-workflow.json` into n8n Cloud.
+4. Create/select the Gemini credential and CareFlow Header Auth credential (`x-n8n-secret`).
+5. Activate the workflow and copy its **Production URL** from `Evolution Incoming WhatsApp`.
+6. In Evolution Manager → instance → Webhook, paste that Production URL, enable the webhook, enable `MESSAGES_UPSERT`, and save.
+
+The Evolution workflow calls CareFlow to read doctors and open slots, and CareFlow calls Evolution to send the AI reply. Appointments created through it appear in the normal dashboard.
+
 Import `appointment-booking-workflow.json` in n8n Cloud. It uses a fixed CareFlow API URL and n8n Cloud credentials; it does not require n8n environment variables.
 
 ## Required Vercel variable

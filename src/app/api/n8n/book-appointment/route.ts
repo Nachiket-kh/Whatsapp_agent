@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { availableSlots, Doctor, hospitalForPhoneNumber, requireN8n, validDate } from "@/lib/n8n";
+import { availableSlots, Doctor, hospitalForChannel, requireN8n, validDate } from "@/lib/n8n";
 import { serviceClient } from "@/lib/hospital";
 
 export const runtime = "nodejs";
@@ -8,10 +8,10 @@ const validName = (value: string) => /^[\p{L}][\p{L}\s.'-]{1,59}$/u.test(value.t
 export async function POST(request: NextRequest) {
   const denied = requireN8n(request); if (denied) return denied;
   try {
-    const body = await request.json() as { phoneNumberId?: string; patientPhone?: string; patientName?: string; doctorId?: string; date?: string; time?: string; reason?: string; conversation?: string };
+    const body = await request.json() as { phoneNumberId?: string; instanceName?: string; patientPhone?: string; patientName?: string; doctorId?: string; date?: string; time?: string; reason?: string; conversation?: string };
     const phoneNumberId = body.phoneNumberId?.trim() ?? ""; const patientPhone = body.patientPhone?.replace(/\D/g, "") ?? ""; const name = body.patientName?.trim() ?? ""; const date = body.date?.trim() ?? ""; const time = body.time?.slice(0, 5) ?? "";
-    if (!/^\d+$/.test(phoneNumberId) || !/^\d{8,15}$/.test(patientPhone) || !validName(name) || !body.doctorId || !validDate(date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return NextResponse.json({ error: "Invalid patient, doctor, date, or time." }, { status: 400 });
-    const hospitalId = await hospitalForPhoneNumber(phoneNumberId); const db = serviceClient();
+    if ((!/^\d+$/.test(phoneNumberId) && !body.instanceName?.trim()) || !/^\d{8,15}$/.test(patientPhone) || !validName(name) || !body.doctorId || !validDate(date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return NextResponse.json({ error: "Invalid channel, patient, doctor, date, or time." }, { status: 400 });
+    const hospitalId = await hospitalForChannel({ phoneNumberId, instanceName: body.instanceName?.trim() }); const db = serviceClient();
     const { data: doctor, error: doctorError } = await db.from("doctors").select("id,name,department,working_days,start_time,end_time,consultation_duration").eq("hospital_id", hospitalId).eq("id", body.doctorId).eq("enabled", true).maybeSingle();
     if (doctorError) throw doctorError; if (!doctor) return NextResponse.json({ error: "Doctor is unavailable." }, { status: 404 });
     if (!(await availableSlots(hospitalId, doctor as Doctor, date)).includes(time)) return NextResponse.json({ error: "This time slot is no longer available. Ask the patient to choose another slot." }, { status: 409 });

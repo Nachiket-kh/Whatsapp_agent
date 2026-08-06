@@ -9,8 +9,15 @@ export function requireN8n(request: NextRequest) {
   return null;
 }
 
-export async function hospitalForPhoneNumber(phoneNumberId: string) {
-  const { data, error } = await serviceClient().from("meta_connections").select("hospital_id,phone_number_id").eq("phone_number_id", phoneNumberId).maybeSingle();
+export async function hospitalForChannel(channel: { phoneNumberId?: string; instanceName?: string }) {
+  if (channel.instanceName) {
+    const { data, error } = await serviceClient().from("evolution_connections").select("hospital_id").eq("instance_name", channel.instanceName).maybeSingle();
+    if (error) { console.error("n8n Evolution connection lookup failed", error); throw error; }
+    if (!data) throw new Error("No hospital is connected to this Evolution instance.");
+    return data.hospital_id as string;
+  }
+  if (!channel.phoneNumberId) throw new Error("A WhatsApp Phone Number ID or Evolution instance name is required.");
+  const { data, error } = await serviceClient().from("meta_connections").select("hospital_id,phone_number_id").eq("phone_number_id", channel.phoneNumberId).maybeSingle();
   if (error) { console.error("n8n Meta connection lookup failed", error); throw error; }
   if (!data) throw new Error("No hospital is connected to this WhatsApp Phone Number ID.");
   return data.hospital_id as string;

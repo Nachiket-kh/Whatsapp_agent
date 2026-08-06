@@ -1,0 +1,92 @@
+{
+  "name": "CareFlow - Evolution API + Gemini Appointment Receptionist",
+  "nodes": [
+    {
+      "parameters": { "httpMethod": "POST", "path": "careflow-evolution", "responseMode": "onReceived", "options": {} },
+      "id": "evolution-webhook",
+      "name": "Evolution Incoming WhatsApp",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-840, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body ?? $json;\nconst event = String(body.event ?? '').toLowerCase();\nconst data = body.data ?? body;\nconst key = data.key ?? {};\nconst remoteJid = String(key.remoteJid ?? data.remoteJid ?? '');\nconst message = data.message ?? {};\nconst text = message.conversation ?? message.extendedTextMessage?.text ?? message.imageMessage?.caption ?? '';\nconst instanceName = String(body.instance ?? data.instance ?? '');\nif (!event.includes('messages') || key.fromMe || !remoteJid || !text || !instanceName) return [];\nconst patientPhone = remoteJid.replace(/@.*/, '').replace(/\\D/g, '');\nif (!patientPhone) return [];\nreturn [{ json: { instanceName, patientPhone, patientMessage: String(text).trim() } }];"
+      },
+      "id": "normalize-evolution",
+      "name": "Normalize Evolution Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-610, 200]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.patientMessage }}",
+        "options": { "systemMessage": "You are CareFlow's hospital WhatsApp receptionist for India. Begin in Marathi unless the patient uses Hindi or English. Be warm, concise, and ask one question at a time. Never invent doctors, departments, slots, or booking confirmation. Use Get Hospital Context before discussing doctors. Use Find Available Slots only after doctor and YYYY-MM-DD date are confirmed. Offer at most 3 slots as 1, 2, 3. Collect full name, age, gender, doctor/department, reason, date, time, and new/returning status. Only call Book Appointment after explicit YES confirmation. For medical advice reply: main doctor ya hospital staff se confirm karwa ke bhejta hoon. For emergency symptoms tell the patient to call emergency services. Do not expose tools or IDs." }
+      },
+      "id": "ai-receptionist",
+      "name": "Gemini AI Receptionist",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [20, 200]
+    },
+    {
+      "parameters": { "modelName": "models/gemini-2.0-flash", "options": {} },
+      "id": "gemini-model",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [-20, 440],
+      "credentials": { "googlePalmApi": { "id": "REPLACE_WITH_GEMINI_CREDENTIAL", "name": "Google Gemini" } }
+    },
+    {
+      "parameters": { "method": "GET", "url": "=https://whatsapp-agent-creator-os8.vercel.app/api/n8n/appointment-context?instanceName={{ $node['Normalize Evolution Message'].json.instanceName }}" },
+      "id": "hospital-context-tool",
+      "name": "Get Hospital Context",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1,
+      "position": [260, 440],
+      "credentials": { "httpHeaderAuth": { "id": "REPLACE_WITH_CAREFLOW_HEADER_CREDENTIAL", "name": "CareFlow API Secret" } }
+    },
+    {
+      "parameters": { "method": "POST", "url": "https://whatsapp-agent-creator-os8.vercel.app/api/n8n/available-slots", "sendBody": true, "contentType": "json", "jsonBody": "={ \"instanceName\": \"{{ $node['Normalize Evolution Message'].json.instanceName }}\", \"doctorId\": \"{{ $fromAI('doctorId', 'Doctor UUID from Get Hospital Context', 'string') }}\", \"date\": \"{{ $fromAI('date', 'Date in YYYY-MM-DD', 'string') }}\" }" },
+      "id": "slots-tool",
+      "name": "Find Available Slots",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1,
+      "position": [510, 440],
+      "credentials": { "httpHeaderAuth": { "id": "REPLACE_WITH_CAREFLOW_HEADER_CREDENTIAL", "name": "CareFlow API Secret" } }
+    },
+    {
+      "parameters": { "method": "POST", "url": "https://whatsapp-agent-creator-os8.vercel.app/api/n8n/book-appointment", "sendBody": true, "contentType": "json", "jsonBody": "={ \"instanceName\": \"{{ $node['Normalize Evolution Message'].json.instanceName }}\", \"patientPhone\": \"{{ $node['Normalize Evolution Message'].json.patientPhone }}\", \"patientName\": \"{{ $fromAI('patientName', 'Patient full name', 'string') }}\", \"doctorId\": \"{{ $fromAI('doctorId', 'Doctor UUID from Get Hospital Context', 'string') }}\", \"date\": \"{{ $fromAI('date', 'Confirmed date YYYY-MM-DD', 'string') }}\", \"time\": \"{{ $fromAI('time', 'Confirmed available time HH:MM', 'string') }}\", \"reason\": \"{{ $fromAI('reason', 'Reason for visit', 'string') }}\", \"conversation\": \"{{ $node['Normalize Evolution Message'].json.patientMessage }}\" }" },
+      "id": "booking-tool",
+      "name": "Book Appointment",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1,
+      "position": [760, 440],
+      "credentials": { "httpHeaderAuth": { "id": "REPLACE_WITH_CAREFLOW_HEADER_CREDENTIAL", "name": "CareFlow API Secret" } }
+    },
+    {
+      "parameters": { "method": "POST", "url": "https://whatsapp-agent-creator-os8.vercel.app/api/n8n/send-evolution-message", "sendBody": true, "contentType": "json", "jsonBody": "={ \"instanceName\": \"{{ $node['Normalize Evolution Message'].json.instanceName }}\", \"to\": \"{{ $node['Normalize Evolution Message'].json.patientPhone }}\", \"text\": \"{{ $json.output }}\" }" },
+      "id": "send-evolution-reply",
+      "name": "Send Reply via CareFlow Evolution",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [330, 200],
+      "credentials": { "httpHeaderAuth": { "id": "REPLACE_WITH_CAREFLOW_HEADER_CREDENTIAL", "name": "CareFlow API Secret" } }
+    }
+  ],
+  "connections": {
+    "Evolution Incoming WhatsApp": { "main": [[{ "node": "Normalize Evolution Message", "type": "main", "index": 0 }]] },
+    "Normalize Evolution Message": { "main": [[{ "node": "Gemini AI Receptionist", "type": "main", "index": 0 }]] },
+    "Google Gemini Chat Model": { "ai_languageModel": [[{ "node": "Gemini AI Receptionist", "type": "ai_languageModel", "index": 0 }]] },
+    "Get Hospital Context": { "ai_tool": [[{ "node": "Gemini AI Receptionist", "type": "ai_tool", "index": 0 }]] },
+    "Find Available Slots": { "ai_tool": [[{ "node": "Gemini AI Receptionist", "type": "ai_tool", "index": 0 }]] },
+    "Book Appointment": { "ai_tool": [[{ "node": "Gemini AI Receptionist", "type": "ai_tool", "index": 0 }]] },
+    "Gemini AI Receptionist": { "main": [[{ "node": "Send Reply via CareFlow Evolution", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "careflow-evolution-gemini-v1"
+}
