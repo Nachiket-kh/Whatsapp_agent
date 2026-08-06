@@ -12,6 +12,11 @@ create table if not exists public.meta_connections (
   updated_at timestamptz not null default now()
 );
 
+-- OAuth / Embedded Signup metadata. Safe to run repeatedly on an existing project.
+alter table public.meta_connections add column if not exists whatsapp_business_account_id text;
+alter table public.meta_connections add column if not exists connection_source text not null default 'manual'
+  check (connection_source in ('manual', 'oauth'));
+
 alter table public.meta_connections enable row level security;
 drop policy if exists "members manage meta connection" on public.meta_connections;
 create policy "members manage meta connection" on public.meta_connections
