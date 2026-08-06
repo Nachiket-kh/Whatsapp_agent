@@ -1,0 +1,113 @@
+{
+  "name": "CareFlow - WhatsApp Gemini Appointment Receptionist",
+  "nodes": [
+    {
+      "parameters": { "updates": ["messages"] },
+      "id": "whatsapp-trigger",
+      "name": "WhatsApp Trigger",
+      "type": "n8n-nodes-base.whatsAppTrigger",
+      "typeVersion": 1,
+      "position": [-860, 200],
+      "credentials": { "whatsAppApi": { "id": "REPLACE_WITH_META_CREDENTIAL", "name": "Meta WhatsApp Cloud API" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const message = $json.messages?.[0] ?? $json.entry?.[0]?.changes?.[0]?.value?.messages?.[0];\nconst metadata = $json.metadata ?? $json.entry?.[0]?.changes?.[0]?.value?.metadata;\nif (!message?.from || message.type !== 'text' || !message.text?.body || !metadata?.phone_number_id) return [];\nreturn [{ json: { patientPhone: String(message.from).replace(/\\D/g, ''), patientMessage: message.text.body.trim(), phoneNumberId: String(metadata.phone_number_id) } }];"
+      },
+      "id": "normalize-message",
+      "name": "Normalize Incoming Patient Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-620, 200]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.patientMessage }}",
+        "options": {
+          "systemMessage": "You are CareFlow's hospital appointment receptionist. Start in Marathi unless the patient clearly writes in Hindi or English. Be warm, concise, and human. Your job is to help book, reschedule, cancel, or check an appointment. Never invent doctors, departments, dates, or availability. First call Get Hospital Context when you need doctor or hospital information. Before offering a time, call Find Available Slots with the chosen doctor UUID and YYYY-MM-DD date. Present a maximum of 3 slots numbered 1, 2, 3. Only call Book Appointment after the patient confirms their full name, doctor, date, time, and reason. If the patient sends an invalid option, politely restate the last choices. For emergencies, tell them to call the hospital emergency number. After booking, clearly state the confirmation returned by the booking tool."
+        }
+      },
+      "id": "ai-receptionist",
+      "name": "Gemini AI Receptionist",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [30, 200]
+    },
+    {
+      "parameters": { "modelName": "models/gemini-2.0-flash", "options": {} },
+      "id": "gemini-model",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [-10, 430],
+      "credentials": { "googlePalmApi": { "id": "REPLACE_WITH_GEMINI_CREDENTIAL", "name": "Google Gemini" } }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.CAREFLOW_URL + '/api/n8n/appointment-context?phoneNumberId=' + $json.phoneNumberId }}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "x-n8n-secret", "value": "={{ $env.CAREFLOW_N8N_SECRET }}" }] }
+      },
+      "id": "hospital-context-tool",
+      "name": "Get Hospital Context",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1,
+      "position": [250, 430]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CAREFLOW_URL + '/api/n8n/available-slots' }}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "x-n8n-secret", "value": "={{ $env.CAREFLOW_N8N_SECRET }}" }] },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={ \"phoneNumberId\": \"{{ $json.phoneNumberId }}\", \"doctorId\": \"{{ $fromAI('doctorId', 'Doctor UUID chosen from Get Hospital Context', 'string') }}\", \"date\": \"{{ $fromAI('date', 'Appointment date in YYYY-MM-DD', 'string') }}\" }"
+      },
+      "id": "slots-tool",
+      "name": "Find Available Slots",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1,
+      "position": [500, 430]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CAREFLOW_URL + '/api/n8n/book-appointment' }}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "x-n8n-secret", "value": "={{ $env.CAREFLOW_N8N_SECRET }}" }] },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={ \"phoneNumberId\": \"{{ $json.phoneNumberId }}\", \"patientPhone\": \"{{ $json.patientPhone }}\", \"patientName\": \"{{ $fromAI('patientName', 'Patient full name', 'string') }}\", \"doctorId\": \"{{ $fromAI('doctorId', 'Doctor UUID chosen from Get Hospital Context', 'string') }}\", \"date\": \"{{ $fromAI('date', 'Confirmed date YYYY-MM-DD', 'string') }}\", \"time\": \"{{ $fromAI('time', 'Confirmed available time HH:MM', 'string') }}\", \"reason\": \"{{ $fromAI('reason', 'Reason for visit', 'string') }}\", \"conversation\": \"{{ $json.patientMessage }}\" }"
+      },
+      "id": "booking-tool",
+      "name": "Book Appointment",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1,
+      "position": [750, 430]
+    },
+    {
+      "parameters": { "resource": "message", "operation": "send", "phoneNumberId": "={{ $json.phoneNumberId }}", "recipientPhoneNumber": "={{ $json.patientPhone }}", "textBody": "={{ $json.output }}" },
+      "id": "send-reply",
+      "name": "Send WhatsApp Reply",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [330, 200],
+      "credentials": { "whatsAppApi": { "id": "REPLACE_WITH_META_CREDENTIAL", "name": "Meta WhatsApp Cloud API" } }
+    }
+  ],
+  "connections": {
+    "WhatsApp Trigger": { "main": [[{ "node": "Normalize Incoming Patient Message", "type": "main", "index": 0 }]] },
+    "Normalize Incoming Patient Message": { "main": [[{ "node": "Gemini AI Receptionist", "type": "main", "index": 0 }]] },
+    "Google Gemini Chat Model": { "ai_languageModel": [[{ "node": "Gemini AI Receptionist", "type": "ai_languageModel", "index": 0 }]] },
+    "Get Hospital Context": { "ai_tool": [[{ "node": "Gemini AI Receptionist", "type": "ai_tool", "index": 0 }]] },
+    "Find Available Slots": { "ai_tool": [[{ "node": "Gemini AI Receptionist", "type": "ai_tool", "index": 0 }]] },
+    "Book Appointment": { "ai_tool": [[{ "node": "Gemini AI Receptionist", "type": "ai_tool", "index": 0 }]] },
+    "Gemini AI Receptionist": { "main": [[{ "node": "Send WhatsApp Reply", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "careflow-whatsapp-gemini-v1"
+}
