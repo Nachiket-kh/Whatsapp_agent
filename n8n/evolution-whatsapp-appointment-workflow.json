@@ -41,7 +41,7 @@
       "credentials": { "googlePalmApi": { "id": "REPLACE_WITH_GEMINI_CREDENTIAL", "name": "Google Gemini" } }
     },
     {
-      "parameters": { "method": "GET", "url": "=https://whatsapp-agent-creator-os8.vercel.app/api/n8n/appointment-context?instanceName={{ $node['Normalize Evolution Message'].json.instanceName }}" },
+      "parameters": { "description": "Get the hospital name, enabled doctors, departments, timings, and emergency number. Call this before offering doctors or answering hospital-information questions.", "method": "GET", "url": "=https://whatsapp-agent-creator-os8.vercel.app/api/n8n/appointment-context?instanceName={{ $('Normalize Evolution Message').first().json.instanceName }}" },
       "id": "hospital-context-tool",
       "name": "Get Hospital Context",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
@@ -50,7 +50,7 @@
       "credentials": { "httpHeaderAuth": { "id": "REPLACE_WITH_CAREFLOW_HEADER_CREDENTIAL", "name": "CareFlow API Secret" } }
     },
     {
-      "parameters": { "method": "POST", "url": "https://whatsapp-agent-creator-os8.vercel.app/api/n8n/available-slots", "sendBody": true, "contentType": "json", "jsonBody": "={ \"instanceName\": \"{{ $node['Normalize Evolution Message'].json.instanceName }}\", \"doctorId\": \"{{ $fromAI('doctorId', 'Doctor UUID from Get Hospital Context', 'string') }}\", \"date\": \"{{ $fromAI('date', 'Date in YYYY-MM-DD', 'string') }}\" }" },
+      "parameters": { "description": "Get real unbooked slots for one doctor on one confirmed YYYY-MM-DD date. Call before offering slots.", "method": "POST", "url": "https://whatsapp-agent-creator-os8.vercel.app/api/n8n/available-slots", "sendBody": true, "contentType": "json", "jsonBody": "={ \"instanceName\": \"{{ $('Normalize Evolution Message').first().json.instanceName }}\", \"doctorId\": \"{{ $fromAI('doctorId', 'Doctor UUID from Get Hospital Context', 'string') }}\", \"date\": \"{{ $fromAI('date', 'Date in YYYY-MM-DD', 'string') }}\" }" },
       "id": "slots-tool",
       "name": "Find Available Slots",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
@@ -59,7 +59,7 @@
       "credentials": { "httpHeaderAuth": { "id": "REPLACE_WITH_CAREFLOW_HEADER_CREDENTIAL", "name": "CareFlow API Secret" } }
     },
     {
-      "parameters": { "method": "POST", "url": "https://whatsapp-agent-creator-os8.vercel.app/api/n8n/book-appointment", "sendBody": true, "contentType": "json", "jsonBody": "={ \"instanceName\": \"{{ $node['Normalize Evolution Message'].json.instanceName }}\", \"patientPhone\": \"{{ $node['Normalize Evolution Message'].json.patientPhone }}\", \"patientName\": \"{{ $fromAI('patientName', 'Patient full name', 'string') }}\", \"doctorId\": \"{{ $fromAI('doctorId', 'Doctor UUID from Get Hospital Context', 'string') }}\", \"date\": \"{{ $fromAI('date', 'Confirmed date YYYY-MM-DD', 'string') }}\", \"time\": \"{{ $fromAI('time', 'Confirmed available time HH:MM', 'string') }}\", \"reason\": \"{{ $fromAI('reason', 'Reason for visit', 'string') }}\", \"conversation\": \"{{ $node['Normalize Evolution Message'].json.patientMessage }}\" }" },
+      "parameters": { "description": "Create an appointment only after the patient explicitly confirms all details. The API validates the slot one final time.", "method": "POST", "url": "https://whatsapp-agent-creator-os8.vercel.app/api/n8n/book-appointment", "sendBody": true, "contentType": "json", "jsonBody": "={ \"instanceName\": \"{{ $('Normalize Evolution Message').first().json.instanceName }}\", \"patientPhone\": \"{{ $('Normalize Evolution Message').first().json.patientPhone }}\", \"patientName\": \"{{ $fromAI('patientName', 'Patient full name', 'string') }}\", \"doctorId\": \"{{ $fromAI('doctorId', 'Doctor UUID from Get Hospital Context', 'string') }}\", \"date\": \"{{ $fromAI('date', 'Confirmed date YYYY-MM-DD', 'string') }}\", \"time\": \"{{ $fromAI('time', 'Confirmed available time HH:MM', 'string') }}\", \"reason\": \"{{ $fromAI('reason', 'Reason for visit', 'string') }}\", \"conversation\": \"{{ $('Normalize Evolution Message').first().json.patientMessage }}\" }" },
       "id": "booking-tool",
       "name": "Book Appointment",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
@@ -68,7 +68,7 @@
       "credentials": { "httpHeaderAuth": { "id": "REPLACE_WITH_CAREFLOW_HEADER_CREDENTIAL", "name": "CareFlow API Secret" } }
     },
     {
-      "parameters": { "method": "POST", "url": "https://whatsapp-agent-creator-os8.vercel.app/api/n8n/send-evolution-message", "sendBody": true, "contentType": "json", "jsonBody": "={ \"instanceName\": \"{{ $node['Normalize Evolution Message'].json.instanceName }}\", \"to\": \"{{ $node['Normalize Evolution Message'].json.patientPhone }}\", \"text\": \"{{ $json.output }}\" }" },
+      "parameters": { "method": "POST", "url": "https://whatsapp-agent-creator-os8.vercel.app/api/n8n/send-evolution-message", "sendBody": true, "contentType": "json", "jsonBody": "={ \"instanceName\": \"{{ $('Normalize Evolution Message').first().json.instanceName }}\", \"to\": \"{{ $('Normalize Evolution Message').first().json.patientPhone }}\", \"text\": \"{{ $json.output }}\" }" },
       "id": "send-evolution-reply",
       "name": "Send Reply via CareFlow Evolution",
       "type": "n8n-nodes-base.httpRequest",
