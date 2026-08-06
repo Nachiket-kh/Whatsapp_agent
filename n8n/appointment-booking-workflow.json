@@ -46,22 +46,19 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "={{ $env.CAREFLOW_URL + '/api/n8n/appointment-context?phoneNumberId=' + $json.phoneNumberId }}",
-        "sendHeaders": true,
-        "headerParameters": { "parameters": [{ "name": "x-n8n-secret", "value": "={{ $env.CAREFLOW_N8N_SECRET }}" }] }
+        "url": "=https://whatsapp-agent-creator-os8.vercel.app/api/n8n/appointment-context?phoneNumberId={{ $json.phoneNumberId }}"
       },
       "id": "hospital-context-tool",
       "name": "Get Hospital Context",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1,
       "position": [250, 430]
+      ,"credentials": { "httpHeaderAuth": { "id": "REPLACE_WITH_CAREFLOW_HEADER_CREDENTIAL", "name": "CareFlow API Secret" } }
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.CAREFLOW_URL + '/api/n8n/available-slots' }}",
-        "sendHeaders": true,
-        "headerParameters": { "parameters": [{ "name": "x-n8n-secret", "value": "={{ $env.CAREFLOW_N8N_SECRET }}" }] },
+        "url": "https://whatsapp-agent-creator-os8.vercel.app/api/n8n/available-slots",
         "sendBody": true,
         "contentType": "json",
         "jsonBody": "={ \"phoneNumberId\": \"{{ $json.phoneNumberId }}\", \"doctorId\": \"{{ $fromAI('doctorId', 'Doctor UUID chosen from Get Hospital Context', 'string') }}\", \"date\": \"{{ $fromAI('date', 'Appointment date in YYYY-MM-DD', 'string') }}\" }"
@@ -71,13 +68,12 @@
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1,
       "position": [500, 430]
+      ,"credentials": { "httpHeaderAuth": { "id": "REPLACE_WITH_CAREFLOW_HEADER_CREDENTIAL", "name": "CareFlow API Secret" } }
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.CAREFLOW_URL + '/api/n8n/book-appointment' }}",
-        "sendHeaders": true,
-        "headerParameters": { "parameters": [{ "name": "x-n8n-secret", "value": "={{ $env.CAREFLOW_N8N_SECRET }}" }] },
+        "url": "https://whatsapp-agent-creator-os8.vercel.app/api/n8n/book-appointment",
         "sendBody": true,
         "contentType": "json",
         "jsonBody": "={ \"phoneNumberId\": \"{{ $json.phoneNumberId }}\", \"patientPhone\": \"{{ $json.patientPhone }}\", \"patientName\": \"{{ $fromAI('patientName', 'Patient full name', 'string') }}\", \"doctorId\": \"{{ $fromAI('doctorId', 'Doctor UUID chosen from Get Hospital Context', 'string') }}\", \"date\": \"{{ $fromAI('date', 'Confirmed date YYYY-MM-DD', 'string') }}\", \"time\": \"{{ $fromAI('time', 'Confirmed available time HH:MM', 'string') }}\", \"reason\": \"{{ $fromAI('reason', 'Reason for visit', 'string') }}\", \"conversation\": \"{{ $json.patientMessage }}\" }"
@@ -87,6 +83,7 @@
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1,
       "position": [750, 430]
+      ,"credentials": { "httpHeaderAuth": { "id": "REPLACE_WITH_CAREFLOW_HEADER_CREDENTIAL", "name": "CareFlow API Secret" } }
     },
     {
       "parameters": { "resource": "message", "operation": "send", "phoneNumberId": "={{ $json.phoneNumberId }}", "recipientPhoneNumber": "={{ $json.patientPhone }}", "textBody": "={{ $json.output }}" },
