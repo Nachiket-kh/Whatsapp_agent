@@ -5,6 +5,7 @@ import { decrypt, secretHash } from "@/lib/crypto";
 import { serviceClient } from "@/lib/hospital";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 type MetaMessage = { id?: string; from?: string; type?: string; text?: { body?: string } };
 type Lang = "English" | "Hindi" | "Marathi";
@@ -65,6 +66,11 @@ export async function GET(request: NextRequest) {
   console.log("Meta WhatsApp webhook GET received");
   const mode = request.nextUrl.searchParams.get("hub.mode"); const token = request.nextUrl.searchParams.get("hub.verify_token") ?? ""; const challenge = request.nextUrl.searchParams.get("hub.challenge");
   if (mode !== "subscribe" || !challenge) return NextResponse.json({ error: "Invalid verification request" }, { status: 400 });
+  // Meta verifies one callback URL at the app level. Prefer the Vercel environment
+  // token, while retaining existing hospital-specific manual connections as fallback.
+  if (process.env.META_WEBHOOK_VERIFY_TOKEN && token === process.env.META_WEBHOOK_VERIFY_TOKEN) {
+    return new NextResponse(challenge, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+  }
   const { data, error } = await serviceClient().from("meta_connections").select("id").eq("verify_token_hash", secretHash(token)).maybeSingle();
   if (error) console.error("Meta verification lookup failed", error);
   return data ? new NextResponse(challenge, { headers: { "Content-Type": "text/plain" } }) : NextResponse.json({ error: "Verification token mismatch" }, { status: 403 });
