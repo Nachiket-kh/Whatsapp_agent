@@ -26,7 +26,7 @@
         "url": "https://whatsapp-agent-creator-os8.vercel.app/api/n8n/conversation-context",
         "sendBody": true,
         "contentType": "json",
-        "jsonBody": "={ \"phoneNumberId\": \"{{ $json.phoneNumberId }}\", \"patientPhone\": \"{{ $json.patientPhone }}\", \"message\": \"{{ $json.patientMessage }}\" }"
+        "jsonBody": "={ \"phoneNumberId\": \"{{ $('Normalize Meta WhatsApp Message').first().json.phoneNumberId }}\", \"patientPhone\": \"{{ $('Normalize Meta WhatsApp Message').first().json.patientPhone }}\", \"message\": \"{{ $('Normalize Meta WhatsApp Message').first().json.patientMessage }}\" }"
       },
       "id": "save-patient-message",
       "name": "Save Patient Message and Load Dashboard History",
