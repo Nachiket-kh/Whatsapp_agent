@@ -13,7 +13,7 @@ Use `careflow-evolution-dashboard-booking.json` when WhatsApp is connected throu
 
 The Evolution workflow calls CareFlow to read doctors and open slots, and CareFlow calls Evolution to send the AI reply. Appointments created through it appear in the normal dashboard.
 
-Import `appointment-booking-workflow.json` in n8n Cloud. It uses a fixed CareFlow API URL and n8n Cloud credentials; it does not require n8n environment variables.
+For Meta WhatsApp Cloud API, import `careflow-meta-dashboard-booking.json`. It uses the Meta WhatsApp trigger and sends its response through Meta. It writes every inbound patient message, assistant reply, patient record, and confirmed appointment into the dashboard.
 
 ## Required Vercel variable
 
@@ -28,7 +28,7 @@ N8N_API_SECRET=create-a-long-random-secret
 3. Create an n8n Cloud credential: **Credentials → Add credential → Header Auth**. Name it `CareFlow API Secret`, set header name to `x-n8n-secret`, and set its value to the exact same value as `N8N_API_SECRET` in Vercel.
 4. Import the workflow and select the Meta, Gemini, and `CareFlow API Secret` credentials in their matching nodes.
 5. Ensure the Google Gemini model is available in your n8n version; change it if n8n offers another Gemini Flash model.
-6. Activate the workflow. n8n displays a production webhook URL for the WhatsApp Trigger.
+6. Activate the Meta workflow. n8n displays a production webhook URL for the WhatsApp Trigger.
 7. In Meta WhatsApp Configuration, replace the Callback URL with the n8n production webhook URL and subscribe to `messages`.
 
 ## CareFlow API endpoints
