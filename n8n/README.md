@@ -13,7 +13,23 @@ Use `careflow-evolution-dashboard-booking.json` when WhatsApp is connected throu
 
 The Evolution workflow calls CareFlow to read doctors and open slots, and CareFlow calls Evolution to send the AI reply. Appointments created through it appear in the normal dashboard.
 
-For Meta WhatsApp Cloud API, import `careflow-meta-dashboard-booking.json`. It uses the Meta WhatsApp trigger and sends its response through Meta. It writes every inbound patient message, assistant reply, patient record, and confirmed appointment into the dashboard.
+## Meta WhatsApp + n8n workflow
+
+Import `careflow-meta-n8n-receptionist.json` for the production Meta flow:
+
+```text
+Patient → Meta WhatsApp → n8n → CareFlow dashboard APIs → n8n → Meta WhatsApp → Patient
+```
+
+Gemini runs only inside n8n. The Next.js application never calls Gemini: it securely stores chats, detects a simple language hint, returns hospital information and enabled doctors, checks live slots, creates appointments, and writes the assistant reply back to the dashboard.
+
+1. In n8n Cloud, create a **Header Auth** credential named `CareFlow API Secret` with header `x-n8n-secret` and the same value as Vercel's `N8N_API_SECRET`.
+2. Create the Meta WhatsApp Cloud API credential and the Google Gemini credential in n8n.
+3. Import `careflow-meta-n8n-receptionist.json` and select those three credentials in the matching nodes.
+4. Activate the workflow. In Meta WhatsApp Configuration, set the callback URL to the **Meta WhatsApp Incoming Message** production URL displayed by n8n—not the CareFlow `/api/webhook` URL.
+5. Subscribe to the `messages` field in Meta and send a WhatsApp message.
+
+The workflow saves both patient and assistant messages to the dashboard. Confirmed appointments are created only through the live CareFlow slot-checking API.
 
 ## Required Vercel variable
 
@@ -38,5 +54,6 @@ The Header Auth credential automatically supplies the required `x-n8n-secret` he
 - `GET /api/n8n/appointment-context?phoneNumberId=...` returns doctors, departments, and hospital hours.
 - `POST /api/n8n/available-slots` receives `phoneNumberId`, `doctorId`, and `date`.
 - `POST /api/n8n/book-appointment` receives patient, doctor, confirmed date, and confirmed time. It validates the slot again and creates the dashboard appointment.
+- `POST /api/n8n/assistant-message` stores n8n's final WhatsApp reply in the dashboard chat history.
 
 Do not expose `N8N_API_SECRET`, Meta tokens, or Gemini API keys in WhatsApp messages or browser code.

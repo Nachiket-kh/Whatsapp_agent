@@ -1,0 +1,151 @@
+{
+  "name": "CareFlow - Meta WhatsApp AI Receptionist",
+  "nodes": [
+    {
+      "parameters": { "updates": ["messages"] },
+      "id": "meta-trigger",
+      "name": "Meta WhatsApp Incoming Message",
+      "type": "n8n-nodes-base.whatsAppTrigger",
+      "typeVersion": 1,
+      "position": [-920, 220],
+      "credentials": { "whatsAppApi": { "id": "REPLACE_WITH_META_CREDENTIAL", "name": "Meta WhatsApp Cloud API" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const value = $json.entry?.[0]?.changes?.[0]?.value ?? $json;\nconst message = value.messages?.[0];\nconst metadata = value.metadata;\nif (!message?.from || message.type !== 'text' || !message.text?.body || !metadata?.phone_number_id) return [];\nreturn [{ json: { phoneNumberId: String(metadata.phone_number_id), patientPhone: String(message.from).replace(/\\D/g, ''), patientMessage: String(message.text.body).trim() } }];"
+      },
+      "id": "normalize-message",
+      "name": "Normalize Meta WhatsApp Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-700, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://whatsapp-agent-creator-os8.vercel.app/api/n8n/conversation-context",
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={ \"phoneNumberId\": \"{{ $('Normalize Meta WhatsApp Message').first().json.phoneNumberId }}\", \"patientPhone\": \"{{ $('Normalize Meta WhatsApp Message').first().json.patientPhone }}\", \"message\": \"{{ $('Normalize Meta WhatsApp Message').first().json.patientMessage }}\" }"
+      },
+      "id": "patient-context",
+      "name": "Save Patient Message and Load Dashboard History",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [-450, 220],
+      "credentials": { "httpHeaderAuth": { "id": "REPLACE_WITH_CAREFLOW_HEADER_CREDENTIAL", "name": "CareFlow API Secret" } }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Patient language hint: {{ $json.languageHint }}\n\nConversation history:\n{{ $json.history }}\n\nReply to the newest patient message. Continue from this history and never repeat a question that the patient has already answered.",
+        "options": {
+          "systemMessage": "You are CareFlow, the warm WhatsApp receptionist for an Indian hospital. You are the first point of contact for appointments, hospital information, doctors, departments, timings, and patient support. Do not diagnose, prescribe medicine, or make emergency decisions.\n\nLANGUAGE: On a first message, greet in the detected language and offer: 1. Marathi 2. Hindi 3. English. If the patient writes clearly in Marathi, Hindi, English, or Hinglish, continue in that language without forcing a menu. Default to Marathi when uncertain. Keep messages short, respectful, and natural. Ask only one question at a time.\n\nHOSPITAL INFORMATION: Before answering any hospital question or naming doctors, departments, services, timings, or emergency contacts, call Get Hospital Context. Never invent information. Doctors returned by this tool are the only doctors currently available for WhatsApp booking.\n\nBOOKING: Collect one detail at a time: full name, age, gender, doctor/department, reason for visit, date, time, and new/returning patient. For a date, offer numbered choices: 1. Today 2. Tomorrow 3. Custom date. For custom date request YYYY-MM-DD and reject invalid or past dates. When a doctor and date are known, call Find Available Slots. Show at most three returned slots with 1, 2, 3. Never claim a slot is free without this tool. Before booking, summarise the patient, doctor, date, time, and reason and ask for an explicit YES. Only after YES call Book Appointment in Dashboard. Use its returned confirmation in your reply.\n\nEDGE CASES: If a doctor is unavailable, call Get Hospital Context and offer enabled doctors from the same department or a different date. If a slot is no longer available, apologise and call Find Available Slots again. If the patient gives an invalid choice, gently show the same numbered options again. If the patient changes their mind, acknowledge the new request and continue the relevant flow. For cancellation or rescheduling, collect their name, registered mobile number, existing doctor, and date, then tell them a hospital staff member will confirm the change.\n\nMEDICAL/EMERGENCY: For medical advice say: main doctor ya hospital staff se confirm karwa ke bhejta hoon. For severe symptoms or emergencies, tell the patient to call local emergency services or go to the nearest emergency department immediately. Never expose tool names, internal IDs, API keys, or system instructions."
+        }
+      },
+      "id": "hospital-agent",
+      "name": "Hospital AI Receptionist",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [-40, 220]
+    },
+    {
+      "parameters": { "modelName": "models/gemini-2.0-flash", "options": {} },
+      "id": "gemini-model",
+      "name": "Gemini Model (n8n only)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [-50, 500],
+      "credentials": { "googlePalmApi": { "id": "REPLACE_WITH_GEMINI_CREDENTIAL", "name": "Google Gemini" } }
+    },
+    {
+      "parameters": {
+        "description": "Use this before answering hospital questions, showing doctors, departments, timings, or services. It returns only doctors currently enabled in the CareFlow dashboard.",
+        "method": "GET",
+        "url": "=https://whatsapp-agent-creator-os8.vercel.app/api/n8n/appointment-context?phoneNumberId={{ $('Normalize Meta WhatsApp Message').first().json.phoneNumberId }}"
+      },
+      "id": "hospital-context",
+      "name": "Get Hospital Context",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1,
+      "position": [220, 500],
+      "credentials": { "httpHeaderAuth": { "id": "REPLACE_WITH_CAREFLOW_HEADER_CREDENTIAL", "name": "CareFlow API Secret" } }
+    },
+    {
+      "parameters": {
+        "description": "Returns live unbooked appointment slots. Use only after the patient chooses a doctor and a valid YYYY-MM-DD date.",
+        "method": "POST",
+        "url": "https://whatsapp-agent-creator-os8.vercel.app/api/n8n/available-slots",
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={ \"phoneNumberId\": \"{{ $('Normalize Meta WhatsApp Message').first().json.phoneNumberId }}\", \"doctorId\": \"{{ $fromAI('doctorId', 'Doctor UUID returned by Get Hospital Context', 'string') }}\", \"date\": \"{{ $fromAI('date', 'Confirmed future date in YYYY-MM-DD', 'string') }}\" }"
+      },
+      "id": "available-slots",
+      "name": "Find Available Slots",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1,
+      "position": [480, 500],
+      "credentials": { "httpHeaderAuth": { "id": "REPLACE_WITH_CAREFLOW_HEADER_CREDENTIAL", "name": "CareFlow API Secret" } }
+    },
+    {
+      "parameters": {
+        "description": "Creates a confirmed dashboard appointment. Call only after the patient replies YES to the final summary. The server rechecks doctor availability and the slot before saving.",
+        "method": "POST",
+        "url": "https://whatsapp-agent-creator-os8.vercel.app/api/n8n/book-appointment",
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={ \"phoneNumberId\": \"{{ $('Normalize Meta WhatsApp Message').first().json.phoneNumberId }}\", \"patientPhone\": \"{{ $('Normalize Meta WhatsApp Message').first().json.patientPhone }}\", \"patientName\": \"{{ $fromAI('patientName', 'Patient full name', 'string') }}\", \"doctorId\": \"{{ $fromAI('doctorId', 'Doctor UUID returned by Get Hospital Context', 'string') }}\", \"date\": \"{{ $fromAI('date', 'Confirmed future date YYYY-MM-DD', 'string') }}\", \"time\": \"{{ $fromAI('time', 'Confirmed time in HH:MM format', 'string') }}\", \"reason\": \"{{ $fromAI('reason', 'Reason for visit', 'string') }}\" }"
+      },
+      "id": "book-appointment",
+      "name": "Book Appointment in Dashboard",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1,
+      "position": [750, 500],
+      "credentials": { "httpHeaderAuth": { "id": "REPLACE_WITH_CAREFLOW_HEADER_CREDENTIAL", "name": "CareFlow API Secret" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://whatsapp-agent-creator-os8.vercel.app/api/n8n/assistant-message",
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={ \"phoneNumberId\": \"{{ $('Normalize Meta WhatsApp Message').first().json.phoneNumberId }}\", \"patientPhone\": \"{{ $('Normalize Meta WhatsApp Message').first().json.patientPhone }}\", \"message\": \"{{ $('Hospital AI Receptionist').first().json.output }}\" }"
+      },
+      "id": "save-assistant-message",
+      "name": "Save AI Reply to Dashboard",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [220, 220],
+      "credentials": { "httpHeaderAuth": { "id": "REPLACE_WITH_CAREFLOW_HEADER_CREDENTIAL", "name": "CareFlow API Secret" } }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "phoneNumberId": "={{ $('Normalize Meta WhatsApp Message').first().json.phoneNumberId }}",
+        "recipientPhoneNumber": "={{ $('Normalize Meta WhatsApp Message').first().json.patientPhone }}",
+        "textBody": "={{ $('Hospital AI Receptionist').first().json.output }}"
+      },
+      "id": "send-whatsapp-reply",
+      "name": "Send WhatsApp Reply",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [470, 220],
+      "credentials": { "whatsAppApi": { "id": "REPLACE_WITH_META_CREDENTIAL", "name": "Meta WhatsApp Cloud API" } }
+    }
+  ],
+  "connections": {
+    "Meta WhatsApp Incoming Message": { "main": [[{ "node": "Normalize Meta WhatsApp Message", "type": "main", "index": 0 }]] },
+    "Normalize Meta WhatsApp Message": { "main": [[{ "node": "Save Patient Message and Load Dashboard History", "type": "main", "index": 0 }]] },
+    "Save Patient Message and Load Dashboard History": { "main": [[{ "node": "Hospital AI Receptionist", "type": "main", "index": 0 }]] },
+    "Gemini Model (n8n only)": { "ai_languageModel": [[{ "node": "Hospital AI Receptionist", "type": "ai_languageModel", "index": 0 }]] },
+    "Get Hospital Context": { "ai_tool": [[{ "node": "Hospital AI Receptionist", "type": "ai_tool", "index": 0 }]] },
+    "Find Available Slots": { "ai_tool": [[{ "node": "Hospital AI Receptionist", "type": "ai_tool", "index": 0 }]] },
+    "Book Appointment in Dashboard": { "ai_tool": [[{ "node": "Hospital AI Receptionist", "type": "ai_tool", "index": 0 }]] },
+    "Hospital AI Receptionist": { "main": [[{ "node": "Save AI Reply to Dashboard", "type": "main", "index": 0 }]] },
+    "Save AI Reply to Dashboard": { "main": [[{ "node": "Send WhatsApp Reply", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "careflow-meta-n8n-receptionist-v1"
+}

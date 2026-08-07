@@ -4,6 +4,16 @@ import { serviceClient } from "@/lib/hospital";
 
 export const runtime = "nodejs";
 
+function languageHint(text: string) {
+  const value = text.toLowerCase();
+  if (/[ऀ-ॿ]/.test(text)) {
+    if (/\b(aahe|ahe|mala|krupaya|appointment|aaj|udya|nav|doctor)\b/i.test(value)) return "Marathi";
+    return "Hindi or Marathi";
+  }
+  if (/\b(namaste|kya|mujhe|hai|hain|kripya|kal|aaj)\b/i.test(value)) return "Hindi";
+  return "English";
+}
+
 export async function POST(request: NextRequest) {
   const denied = requireN8n(request); if (denied) return denied;
   try {
@@ -16,7 +26,13 @@ export async function POST(request: NextRequest) {
     const { error: messageError } = await db.from("messages").insert({ conversation_id: conversation.id, role: "user", content: message }); if (messageError) throw messageError;
     const { data: messages, error: historyError } = await db.from("messages").select("role,content,created_at").eq("conversation_id", conversation.id).order("created_at", { ascending: false }).limit(12); if (historyError) throw historyError;
     const history = (messages ?? []).reverse().map((item) => `${item.role === "assistant" ? "Receptionist" : "Patient"}: ${item.content}`).join("\n");
-    return NextResponse.json({ hospitalId, conversationId: conversation.id, patientPhone, history });
+    return NextResponse.json({
+      hospitalId,
+      conversationId: conversation.id,
+      patientPhone,
+      languageHint: languageHint(message),
+      history,
+    });
   } catch (error) {
     console.error("n8n conversation context failed", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to save the patient conversation." }, { status: 500 });

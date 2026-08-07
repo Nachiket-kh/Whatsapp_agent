@@ -2,9 +2,9 @@ import Link from "next/link";
 import styles from "./creatoros.module.css";
 
 const plans = [
-  { name: "Basic", price: "₹5,000", text: "A polished WhatsApp booking agent and live appointment dashboard.", items: ["WhatsApp appointment booking", "Doctor & department selection", "Live dashboard", "Patient chat history"] },
-  { name: "Standard", price: "₹7,000", text: "WhatsApp plus an AI voice receptionist for your hospital.", items: ["Everything in Basic", "AI Voice Receptionist", "Call logs & transcripts", "Marathi, Hindi & English"] },
-  { name: "Pro", price: "₹10,000", text: "A tailored patient-engagement operating system for growing teams.", items: ["Everything in Standard", "Custom workflows", "Appointment reminders", "Priority setup & support"] },
+  { name: "Basic", price: "₹7,000", text: "A polished WhatsApp booking agent and live appointment dashboard.", items: ["WhatsApp appointment booking", "Doctor & department selection", "Live dashboard", "Patient chat history"] },
+  { name: "Standard", price: "₹9,000", text: "WhatsApp plus an AI voice receptionist for your hospital.", items: ["Everything in Basic", "AI Voice Receptionist", "Call logs & transcripts", "Marathi, Hindi & English"] },
+  { name: "Pro", price: "₹12,000", text: "A tailored patient-engagement operating system for growing teams.", items: ["Everything in Standard", "Custom workflows", "Appointment reminders", "Priority setup & support"] },
 ];
 
 export default function Home() {
