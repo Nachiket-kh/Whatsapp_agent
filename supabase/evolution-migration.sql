@@ -12,6 +12,24 @@ create table if not exists public.evolution_connections (
   updated_at timestamptz not null default now()
 );
 
+-- Earlier CareFlow builds created this table before credentials were encrypted.
+-- Keep the migration safe to run against both the old and new schemas.
+alter table public.evolution_connections
+  add column if not exists server_url_encrypted text,
+  add column if not exists api_key_encrypted text,
+  add column if not exists instance_name text,
+  add column if not exists display_phone_number text,
+  add column if not exists status text default 'disconnected',
+  add column if not exists last_error text,
+  add column if not exists created_at timestamptz default now(),
+  add column if not exists updated_at timestamptz default now();
+
+create unique index if not exists evolution_connections_hospital_id_key
+  on public.evolution_connections (hospital_id);
+create unique index if not exists evolution_connections_instance_name_key
+  on public.evolution_connections (instance_name)
+  where instance_name is not null;
+
 alter table public.evolution_connections enable row level security;
 drop policy if exists "members manage evolution connections" on public.evolution_connections;
 create policy "members manage evolution connections" on public.evolution_connections
