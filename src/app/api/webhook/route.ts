@@ -191,9 +191,14 @@ async function customDatePicker(db: ReturnType<typeof serviceClient>, hospitalId
   return { log: `Sent ${dates.length} future dates with availability.`, outgoing: [listMessage(t(language).custom, t(language).custom, dates.map((date) => ({ id: `custom_date_${date}`, title: displayDate(date, language) })))] };
 }
 
-async function slotsPicker(db: ReturnType<typeof serviceClient>, hospitalId: string, doctor: Doctor, date: string, language: Language): Promise<TapResult> {
+async function slotsPicker(db: ReturnType<typeof serviceClient>, hospitalId: string, conversationId: string, now: string, doctor: Doctor, date: string, language: Language): Promise<TapResult> {
   const slots = (await availableSlots(hospitalId, doctor, date)).slice(0, 15);
-  if (!slots.length) return { log: `No slots available for ${date}.`, outgoing: [plainMessage(t(language).noSlots), dateButtons(language)] };
+  if (!slots.length) {
+    // Return to the date state before showing date buttons again. Without this,
+    // a second date tap could be mistaken for an invalid time-slot selection.
+    await db.from("appointment_drafts").update({ stage: "tap_date", preferred_date: null, offered_slots: null, updated_at: now }).eq("conversation_id", conversationId);
+    return { log: `No slots available for ${date}.`, outgoing: [plainMessage(t(language).noSlots), dateButtons(language)] };
+  }
   const groups = Array.from({ length: Math.ceil(slots.length / 10) }, (_, index) => slots.slice(index * 10, index * 10 + 10));
   return {
     log: `Sent ${slots.length} live appointment slot${slots.length === 1 ? "" : "s"} for ${date}.`,
@@ -278,7 +283,7 @@ async function runTapBooking(input: {
     if (error) throw error;
     if (!doctor) return { log: "Doctor unavailable before date selection.", outgoing: [plainMessage("That doctor is no longer available. Please start again."), menuButtons(draft.language)] };
     await db.from("appointment_drafts").update({ preferred_date: date, stage: "tap_slot", updated_at: now }).eq("conversation_id", conversationId);
-    return slotsPicker(db, hospitalId, doctor as Doctor, date, draft.language);
+    return slotsPicker(db, hospitalId, conversationId, now, doctor as Doctor, date, draft.language);
   }
 
   if (draft.stage === "tap_custom_date") {
@@ -288,10 +293,11 @@ async function runTapBooking(input: {
     if (error) throw error;
     if (!doctor) return { log: "Doctor unavailable before custom-date selection.", outgoing: [plainMessage(t(draft.language).noDoctor), menuButtons(draft.language)] };
     await db.from("appointment_drafts").update({ preferred_date: date, stage: "tap_slot", updated_at: now }).eq("conversation_id", conversationId);
-    return slotsPicker(db, hospitalId, doctor as Doctor, date, draft.language);
+    return slotsPicker(db, hospitalId, conversationId, now, doctor as Doctor, date, draft.language);
   }
 
   if (draft.stage === "tap_slot") {
+    if (tap.startsWith("tap:date:") || tap.startsWith("custom_date_")) return { log: "Ignored stale date selection after slot list was sent.", outgoing: [] };
     const slotPrefix = draft.preferred_date ? `slot_${draft.preferred_date}_` : "";
     const slotValue = slotPrefix && tap.startsWith(slotPrefix) ? tap.slice(slotPrefix.length) : "";
     const slot = /^\d{2}-\d{2}$/.test(slotValue) ? slotValue.replace("-", ":") : null;
