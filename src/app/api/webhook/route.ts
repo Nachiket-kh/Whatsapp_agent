@@ -3,6 +3,7 @@ import { decrypt, secretHash } from "@/lib/crypto";
 import { availableSlots, Doctor, todayInIndia, validDate } from "@/lib/n8n";
 import { serviceClient } from "@/lib/hospital";
 import { cleanupExpiredChatsWhenDue } from "@/lib/chat-retention";
+import { askGroqReceptionist } from "@/lib/groq";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -89,6 +90,15 @@ async function getHospitalHelp(db: ReturnType<typeof serviceClient>, hospitalId:
   const prefix = language === "Marathi" ? "हॉस्पिटलची माहिती" : language === "Hindi" ? "अस्पताल की जानकारी" : "Hospital information";
   const labels = language === "Marathi" ? { timing: "वेळ", departments: "विभाग", doctors: "उपलब्ध डॉक्टर" } : language === "Hindi" ? { timing: "समय", departments: "विभाग", doctors: "उपलब्ध डॉक्टर" } : { timing: "Timings", departments: "Departments", doctors: "Available doctors" };
   return `${prefix}: ${settings?.hospital_name ?? "CareFlow Hospital"}\n${labels.timing}: ${displayTime(String(settings?.opening_time ?? "09:00"))} to ${displayTime(String(settings?.closing_time ?? "17:00"))}\n${labels.departments}: ${departments}\n${labels.doctors}:\n${doctorList}\n\n${intentMenu(language)}`;
+}
+
+async function getGroqHelp(db: ReturnType<typeof serviceClient>, hospitalId: string, language: Language, patientMessage: string) {
+  const [{ data: settings, error: settingsError }, { data: doctors, error: doctorsError }] = await Promise.all([
+    db.from("hospital_settings").select("hospital_name,opening_time,closing_time,departments").eq("hospital_id", hospitalId).maybeSingle(),
+    db.from("doctors").select("name,department").eq("hospital_id", hospitalId).eq("enabled", true).order("department").order("name"),
+  ]);
+  if (settingsError || doctorsError) { console.error("Groq hospital context lookup failed", settingsError ?? doctorsError); return null; }
+  return askGroqReceptionist({ language, patientMessage, context: { hospitalName: settings?.hospital_name ?? "Our hospital", openingTime: String(settings?.opening_time ?? "09:00"), closingTime: String(settings?.closing_time ?? "17:00"), departments: settings?.departments ?? [], doctors: (doctors ?? []).map((doctor) => `${doctor.name} (${doctor.department})`) } });
 }
 
 // This table is added by supabase/meta-migration.sql. The fallback keeps an
@@ -188,12 +198,15 @@ export async function POST(request: NextRequest) {
       // In the intent menu 1, 2, and 3 are actions. Only explicit language
       // names/codes switch language here; numeric language choices belong to
       // the separate language-selection step.
-      const requestedLanguage = /^(marathi|mr|hindi|hi|english|en)$/i.test(clean(text)) ? languageFor(text) : null;
+      const requestedLanguage = /^[123]$/.test(clean(text)) ? null : languageFor(text);
       if (requestedLanguage) { await db.from("appointment_drafts").update({ language: requestedLanguage, updated_at: now }).eq("conversation_id", conversation.id); reply = intentMenu(requestedLanguage); }
       else if (needsMedicalStaff(text)) reply = draft.language === "Marathi" ? "मी डॉक्टर किंवा हॉस्पिटल स्टाफकडून खात्री करून सांगतो. आपत्कालीन स्थिती असल्यास त्वरित जवळच्या emergency department मध्ये जा." : draft.language === "Hindi" ? "मैं डॉक्टर या अस्पताल स्टाफ से confirm करके बताता हूँ। Emergency हो तो तुरंत nearest emergency department जाएँ।" : "I will ask a doctor or hospital staff member to confirm. For an emergency, please go to the nearest emergency department immediately.";
       else if (text === "2" || text === "3" || isHospitalQuestion(text)) reply = await getHospitalHelp(db, hospitalId, draft.language);
       else if (text === "1" || isBooking(text)) { await db.from("appointment_drafts").update({ stage: "name", updated_at: now }).eq("conversation_id", conversation.id); reply = messages[draft.language].name; }
-      else reply = intentMenu(draft.language);
+      else {
+        const informativeReply = await getGroqHelp(db, hospitalId, draft.language, text);
+        reply = informativeReply ? `${informativeReply}\n\n${intentMenu(draft.language)}` : intentMenu(draft.language);
+      }
     } else if (draft.stage === "name") {
       if (!validName(text)) reply = `${messages[draft.language].name}\nExample: Riya Patil`;
       else {
