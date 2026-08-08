@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { decrypt, secretHash } from "@/lib/crypto";
 import { availableSlots, Doctor, todayInIndia, validDate } from "@/lib/n8n";
 import { serviceClient } from "@/lib/hospital";
+import { cleanupExpiredChatsWhenDue } from "@/lib/chat-retention";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,11 +19,11 @@ type Draft = {
 };
 type MetaMessage = { id?: string; from?: string; type?: string; text?: { body?: string } };
 
-const languageMenu = "Welcome to CareFlow Hospital Reception. Please choose your language:\n1. Marathi\n2. Hindi\n3. English";
+const languageMenu = "CareFlow Hospital Reception mein aapka swagat hai. Kripya bhasha chuniye:\n1. मराठी\n2. हिंदी\n3. English";
 const intentMenu = (language: Language) => language === "Marathi"
-  ? "Namaskar! Mi tumhala kashi madat karu?\n1. Appointment book kara\n2. Doctors / departments\n3. Hospital timings"
+  ? "नमस्कार! मी तुम्हाला कशी मदत करू?\n1. अपॉइंटमेंट बुक करा\n2. डॉक्टर / विभाग\n3. हॉस्पिटलच्या वेळा"
   : language === "Hindi"
-    ? "Namaste! Main aapki kaise madad kar sakti hoon?\n1. Appointment book karein\n2. Doctors / departments\n3. Hospital timings"
+    ? "नमस्ते! मैं आपकी कैसे मदद कर सकती हूँ?\n1. अपॉइंटमेंट बुक करें\n2. डॉक्टर / विभाग\n3. अस्पताल का समय"
     : "Hello! How can I help?\n1. Book an appointment\n2. Doctors / departments\n3. Hospital timings";
 const messages = {
   English: {
@@ -31,34 +32,28 @@ const messages = {
     confirm: "Reply YES to confirm this appointment, or NO to choose another date.", booked: "Your appointment is confirmed.",
   },
   Hindi: {
-    name: "Kripya mareez ka poora naam bataiye.", reason: "Mulaqat ka kaaran bataiye.", doctor: "Kripya doctor ya department chuniye.",
-    date: "Date chuniye:\n1. Aaj\n2. Kal\n3. Apni date (YYYY-MM-DD)", slot: "Available time chuniye. 1, 2, ya 3 se reply karein.",
-    confirm: "Appointment confirm karne ke liye YES likhiye, badalne ke liye NO likhiye.", booked: "Aapki appointment confirm ho gayi hai.",
+    name: "कृपया मरीज का पूरा नाम बताएं।", reason: "मुलाकात का कारण बताएं।", doctor: "कृपया डॉक्टर या विभाग चुनें।",
+    date: "तारीख चुनें:\n1. आज\n2. कल\n3. अपनी तारीख (YYYY-MM-DD)", slot: "उपलब्ध समय चुनें। 1, 2 या 3 से reply करें।",
+    confirm: "Appointment confirm करने के लिए YES लिखें, बदलने के लिए NO लिखें।", booked: "आपकी appointment confirm हो गई है।",
   },
   Marathi: {
-    name: "Krupaya rugnache purna naav sanga.", reason: "Bhetiche kaaran sanga.", doctor: "Krupaya doctor kinva department nivaDa.",
-    date: "Tarikh nivaDa:\n1. Aaj\n2. Udya\n3. Tumchi tarikh (YYYY-MM-DD)", slot: "Uplabdha vel nivaDa. 1, 2 kinva 3 ne reply kara.",
-    confirm: "Appointment nishchit karnyasathi YES liha, badalnyasathi NO liha.", booked: "Tumchi appointment nishchit jhali aahe.",
+    name: "कृपया रुग्णाचे पूर्ण नाव सांगा.", reason: "भेटीचे कारण सांगा.", doctor: "कृपया डॉक्टर किंवा विभाग निवडा.",
+    date: "तारीख निवडा:\n1. आज\n2. उद्या\n3. तुमची तारीख (YYYY-MM-DD)", slot: "उपलब्ध वेळ निवडा. 1, 2 किंवा 3 ने reply करा.",
+    confirm: "Appointment निश्चित करण्यासाठी YES लिहा, बदलण्यासाठी NO लिहा.", booked: "तुमची appointment निश्चित झाली आहे.",
   },
 } as const;
 
 const clean = (value: string) => value.trim();
 const validName = (value: string) => /^[\p{L}][\p{L}\s.'-]{1,59}$/u.test(clean(value));
-const languageFor = (value: string): Language | null => ({ "1": "Marathi", marathi: "Marathi", mr: "Marathi", "2": "Hindi", hindi: "Hindi", hi: "Hindi", "3": "English", english: "English", en: "English" }[clean(value).toLowerCase()] as Language | undefined) ?? null;
-const detectLanguage = (value: string): Language => {
-  const lower = value.toLowerCase();
-  if (/\b(hello|hi|book|appointment|doctor|please|time|today|tomorrow)\b/.test(lower)) return "English";
-  if (/\b(namaste|mujhe|kripya|aaj|kal|doctor|appointment)\b/.test(lower)) return "Hindi";
-  return "Marathi";
-};
+const languageFor = (value: string): Language | null => ({ "1": "Marathi", marathi: "Marathi", "मराठी": "Marathi", mr: "Marathi", "2": "Hindi", hindi: "Hindi", "हिंदी": "Hindi", hi: "Hindi", "3": "English", english: "English", en: "English" }[clean(value).toLowerCase()] as Language | undefined) ?? null;
 const displayTime = (value: string) => {
   const [hour, minute] = value.slice(0, 5).split(":").map(Number);
   return `${((hour + 11) % 12) + 1}:${String(minute).padStart(2, "0")} ${hour >= 12 ? "PM" : "AM"}`;
 };
 const numbered = (items: string[], prompt: string) => `${items.map((item, index) => `${index + 1}. ${item}`).join("\n")}\n\n${prompt}`;
-const isBooking = (value: string) => /\b(book|booking|appointment|visit|schedule|book kara|book karein)\b/i.test(value);
-const needsMedicalStaff = (value: string) => /\b(pain|fever|medicine|tablet|symptom|diagnos|prescription|blood|chest|dard|bukhar|dawa|aushadh)\b/i.test(value);
-const isHospitalQuestion = (value: string) => /\b(department|specialist|doctor|available|timing|time|hours|open|close|address|contact|emergency|fees?)\b/i.test(value);
+const isBooking = (value: string) => /\b(book|booking|appointment|visit|schedule|book kara|book karein)\b|अपॉइंटमेंट|भेट/i.test(value);
+const needsMedicalStaff = (value: string) => /\b(pain|fever|medicine|tablet|symptom|diagnos|prescription|blood|chest|dard|bukhar|dawa|aushadh)\b|दर्द|बुखार|दवा|ताप|औषध|वेदना/i.test(value);
+const isHospitalQuestion = (value: string) => /\b(department|specialist|doctor|available|timing|time|hours|open|close|address|contact|emergency|fees?)\b|डॉक्टर|विभाग|वेळ|समय|अस्पताल|हॉस्पिटल/i.test(value);
 
 async function sendMetaMessage(phoneNumberId: string, encryptedToken: string, recipient: string, text: string) {
   const response = await fetch(`https://graph.facebook.com/v22.0/${encodeURIComponent(phoneNumberId)}/messages`, {
@@ -78,8 +73,9 @@ async function getHospitalHelp(db: ReturnType<typeof serviceClient>, hospitalId:
   if (doctorsError) throw doctorsError;
   const doctorList = (doctors ?? []).map((doctor) => `${doctor.name} - ${doctor.department}`).join("\n") || "No doctors are currently marked available.";
   const departments = settings?.departments?.length ? settings.departments.join(", ") : "Please ask the hospital reception.";
-  const prefix = language === "Marathi" ? "Hospital mahiti" : language === "Hindi" ? "Hospital ki jaankari" : "Hospital information";
-  return `${prefix}: ${settings?.hospital_name ?? "CareFlow Hospital"}\nTimings: ${displayTime(String(settings?.opening_time ?? "09:00"))} to ${displayTime(String(settings?.closing_time ?? "17:00"))}\nDepartments: ${departments}\nAvailable doctors:\n${doctorList}\n\n${intentMenu(language)}`;
+  const prefix = language === "Marathi" ? "हॉस्पिटलची माहिती" : language === "Hindi" ? "अस्पताल की जानकारी" : "Hospital information";
+  const labels = language === "Marathi" ? { timing: "वेळ", departments: "विभाग", doctors: "उपलब्ध डॉक्टर" } : language === "Hindi" ? { timing: "समय", departments: "विभाग", doctors: "उपलब्ध डॉक्टर" } : { timing: "Timings", departments: "Departments", doctors: "Available doctors" };
+  return `${prefix}: ${settings?.hospital_name ?? "CareFlow Hospital"}\n${labels.timing}: ${displayTime(String(settings?.opening_time ?? "09:00"))} to ${displayTime(String(settings?.closing_time ?? "17:00"))}\n${labels.departments}: ${departments}\n${labels.doctors}:\n${doctorList}\n\n${intentMenu(language)}`;
 }
 
 // This table is added by supabase/meta-migration.sql. The fallback keeps an
@@ -139,6 +135,7 @@ export async function POST(request: NextRequest) {
     if (connectionError) throw connectionError;
     if (!connection) throw new Error("No hospital is connected to this WhatsApp Phone Number ID.");
     const hospitalId = connection.hospital_id as string;
+    await cleanupExpiredChatsWhenDue(hospitalId);
     const now = new Date().toISOString();
     const { data: conversation, error: conversationError } = await db.from("conversations")
       .upsert({ hospital_id: hospitalId, phone_number: patientPhone, updated_at: now }, { onConflict: "hospital_id,phone_number" }).select("id").single();
@@ -154,15 +151,16 @@ export async function POST(request: NextRequest) {
     if (draftError) throw draftError;
     const draft = draftRow as Draft | null;
     let reply = "";
-    const reset = /^(restart|start over|new appointment|book again|cancel|stop|navin|punha)$/i.test(text);
+    const reset = /^(restart|start over|new appointment|book again|cancel|stop|navin|punha|नवीन|पुन्हा)$/i.test(text);
 
     if (reset) {
       await db.from("appointment_drafts").upsert({ conversation_id: conversation.id, language: "Marathi", stage: "language", patient_name: null, doctor_or_department: null, preferred_date: null, reason: null, offered_slots: null, updated_at: now });
       reply = languageMenu;
     } else if (!draft) {
-      const language = detectLanguage(text);
-      await db.from("appointment_drafts").upsert({ conversation_id: conversation.id, language, stage: "intent", patient_name: null, doctor_or_department: null, preferred_date: null, reason: null, offered_slots: null, updated_at: now });
-      reply = intentMenu(language);
+      // The first interaction always asks for a language. Once chosen, every
+      // subsequent prompt is rendered in that language's native script.
+      await db.from("appointment_drafts").upsert({ conversation_id: conversation.id, language: "Marathi", stage: "language", patient_name: null, doctor_or_department: null, preferred_date: null, reason: null, offered_slots: null, updated_at: now });
+      reply = languageMenu;
     } else if (draft.stage === "language") {
       const language = languageFor(text);
       if (!language) reply = languageMenu;
@@ -173,7 +171,7 @@ export async function POST(request: NextRequest) {
       // the separate language-selection step.
       const requestedLanguage = /^(marathi|mr|hindi|hi|english|en)$/i.test(clean(text)) ? languageFor(text) : null;
       if (requestedLanguage) { await db.from("appointment_drafts").update({ language: requestedLanguage, updated_at: now }).eq("conversation_id", conversation.id); reply = intentMenu(requestedLanguage); }
-      else if (needsMedicalStaff(text)) reply = draft.language === "English" ? "I will ask a doctor or hospital staff member to confirm. For an emergency, please go to the nearest emergency department immediately." : "Main doctor ya hospital staff se confirm karwa ke bhejta hoon. Emergency ho to turant nearest emergency department jaiye.";
+      else if (needsMedicalStaff(text)) reply = draft.language === "Marathi" ? "मी डॉक्टर किंवा हॉस्पिटल स्टाफकडून खात्री करून सांगतो. आपत्कालीन स्थिती असल्यास त्वरित जवळच्या emergency department मध्ये जा." : draft.language === "Hindi" ? "मैं डॉक्टर या अस्पताल स्टाफ से confirm करके बताता हूँ। Emergency हो तो तुरंत nearest emergency department जाएँ।" : "I will ask a doctor or hospital staff member to confirm. For an emergency, please go to the nearest emergency department immediately.";
       else if (text === "2" || text === "3" || isHospitalQuestion(text)) reply = await getHospitalHelp(db, hospitalId, draft.language);
       else if (text === "1" || isBooking(text)) { await db.from("appointment_drafts").update({ stage: "name", updated_at: now }).eq("conversation_id", conversation.id); reply = messages[draft.language].name; }
       else reply = intentMenu(draft.language);
@@ -222,7 +220,7 @@ export async function POST(request: NextRequest) {
         reply = `${draft.patient_name}\n${doctor?.name ?? "Doctor"} - ${doctor?.department ?? ""}\n${draft.preferred_date} at ${displayTime(slot)}\n${draft.reason ?? ""}\n\n${messages[draft.language].confirm}`;
       }
     } else if (draft.stage === "confirm") {
-      if (!/^(yes|y|1|ho|haan|ha)$/i.test(text)) {
+      if (!/^(yes|y|1|ho|haan|ha|हो)$/i.test(text)) {
         await db.from("appointment_drafts").update({ stage: "date", offered_slots: null, updated_at: now }).eq("conversation_id", conversation.id);
         reply = messages[draft.language].date;
       } else {

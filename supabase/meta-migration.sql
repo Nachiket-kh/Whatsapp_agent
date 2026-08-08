@@ -17,6 +17,13 @@ alter table public.meta_connections add column if not exists whatsapp_business_a
 alter table public.meta_connections add column if not exists connection_source text not null default 'manual'
   check (connection_source in ('manual', 'oauth'));
 
+-- Default chat/contact expiry. Appointment records are never deleted by the
+-- retention task, so booked patients remain visible to the hospital.
+alter table public.hospital_settings add column if not exists chat_retention_hours integer not null default 24;
+alter table public.hospital_settings drop constraint if exists hospital_settings_chat_retention_hours_check;
+alter table public.hospital_settings add constraint hospital_settings_chat_retention_hours_check
+  check (chat_retention_hours between 1 and 720);
+
 alter table public.meta_connections enable row level security;
 drop policy if exists "members manage meta connection" on public.meta_connections;
 create policy "members manage meta connection" on public.meta_connections

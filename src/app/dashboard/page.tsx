@@ -3,12 +3,16 @@ import { createClient } from "@/lib/supabase/server";
 import DashboardClient from "./dashboard-client";
 import type { Appointment, Conversation, Doctor, HospitalSettings, Message, Patient } from "@/lib/database.types";
 import { ensureHospital, serviceClient } from "@/lib/hospital";
+import { cleanupExpiredChats } from "@/lib/chat-retention";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
   const hospitalId = await ensureHospital(user.id);
+  // Ensure the configured chat/contact retention window is applied whenever
+  // an administrator opens the dashboard.
+  try { await cleanupExpiredChats(hospitalId); } catch (error) { console.error("Dashboard chat retention cleanup failed", error); }
   // The user is authenticated above and hospitalId is resolved from their
   // membership. Use the server service client for these reads so dashboard
   // updates written by the Meta webhook are visible even on older RLS setups.

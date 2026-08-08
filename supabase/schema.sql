@@ -65,6 +65,7 @@ create table if not exists public.hospital_settings (
   opening_time time not null default '09:00',
   closing_time time not null default '17:00',
   slot_duration integer not null default 20,
+  chat_retention_hours integer not null default 24 check (chat_retention_hours between 1 and 720),
   emergency_number text,
   whatsapp_number text,
   updated_at timestamptz not null default now()
