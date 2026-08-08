@@ -21,3 +21,28 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to update doctor availability." }, { status: 500 });
   }
 }
+
+export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const auth = await createClient();
+  const { data: { user } } = await auth.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  try {
+    const hospitalId = await ensureHospital(user.id);
+    const { error, count } = await serviceClient()
+      .from("doctors")
+      .delete({ count: "exact" })
+      .eq("id", id)
+      .eq("hospital_id", hospitalId);
+    if (error) {
+      console.error("Doctor deletion failed", error);
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    if (!count) return NextResponse.json({ error: "Doctor was not found." }, { status: 404 });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Doctor deletion failed", error);
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to delete doctor." }, { status: 500 });
+  }
+}

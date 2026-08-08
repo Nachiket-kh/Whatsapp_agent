@@ -8,6 +8,8 @@
 .availability input::after { content:""; position:absolute; top:3px; left:3px; width:16px; height:16px; border-radius:50%; background:white; transition:transform .2s ease; }
 .availability input:checked { background:#14b887; }.availability input:checked::after { transform:translateX(16px); }
 .available { color:#96e8c6; }.unavailable { color:#ffb2b7; }
+.deleteDoctor { display:block; width:100%; margin-top:12px; padding:8px 10px; border:1px solid #754046; border-radius:8px; background:#321b20; color:#ffb2b7; font-weight:700; cursor:pointer; }
+.deleteDoctor:hover { background:#492228; }
 .modalBackdrop { position:fixed; inset:0; z-index:50; display:grid; place-items:center; padding:20px; background:rgba(1,12,11,.72); backdrop-filter:blur(5px); }
 .modal { position:relative; width:min(460px,100%); padding:28px; border:1px solid var(--line); border-radius:18px; background:var(--panel); color:inherit; box-shadow:0 24px 80px rgba(0,0,0,.5); }
 .modalEyebrow { color:var(--accent); font-size:.72rem; font-weight:800; letter-spacing:.14em; }.modal h2 { margin:8px 0 4px; font-size:1.7rem; }.modalStatus { display:inline-block; margin:0 0 20px; padding:5px 9px; border-radius:999px; background:#214b41; color:#aef1d4; font-size:.8rem; }.modal dl { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:0 0 24px; }.modal dl div { padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--bg); }.modal dt { color:var(--muted); font-size:.72rem; }.modal dd { margin:5px 0 0; font-weight:600; overflow-wrap:anywhere; }.close { position:absolute; top:13px; right:13px; width:32px; height:32px; padding:0; border:1px solid var(--line); border-radius:50%; background:transparent; color:inherit; font-size:1.3rem; }
