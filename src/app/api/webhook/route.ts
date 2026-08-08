@@ -18,7 +18,17 @@ type Draft = {
   reason: string | null;
   offered_slots: string[] | null;
 };
-type MetaMessage = { id?: string; from?: string; type?: string; text?: { body?: string } };
+type MetaMessage = {
+  id?: string; from?: string; type?: string; text?: { body?: string };
+  interactive?: {
+    type?: string;
+    button_reply?: { id?: string; title?: string };
+    list_reply?: { id?: string; title?: string; description?: string };
+    nfm_reply?: { response_json?: string };
+  };
+};
+type MetaOutbound = Record<string, unknown>;
+type TapResult = { log: string; outgoing: MetaOutbound[] };
 
 const languageMenu = "Welcome to CareFlow Hospital Reception. We will assist you in English by default. To switch language, reply: Marathi / मराठी or Hindi / हिंदी.";
 const intentMenu = (language: Language) => language === "Marathi"
@@ -83,11 +93,50 @@ const isBooking = (value: string) => /\b(book|booking|appointment|visit|schedule
 const needsMedicalStaff = (value: string) => /\b(pain|fever|medicine|tablet|symptom|diagnos|prescription|blood|chest|dard|bukhar|dawa|aushadh)\b|दर्द|बुखार|दवा|ताप|औषध|वेदना/i.test(value);
 const isHospitalQuestion = (value: string) => /\b(department|specialist|doctor|available|timing|time|hours|open|close|address|contact|emergency|fees?)\b|डॉक्टर|विभाग|वेळ|समय|अस्पताल|हॉस्पिटल/i.test(value);
 
-async function sendMetaMessage(phoneNumberId: string, encryptedToken: string, recipient: string, text: string) {
+const short = (value: string, length: number) => value.length > length ? `${value.slice(0, Math.max(0, length - 1))}…` : value;
+const plainMessage = (text: string): MetaOutbound => ({ messaging_product: "whatsapp", type: "text", text: { body: text } });
+const buttonsMessage = (body: string, buttons: Array<{ id: string; title: string }>): MetaOutbound => ({
+  messaging_product: "whatsapp", type: "interactive", interactive: {
+    type: "button", body: { text: body }, action: { buttons: buttons.slice(0, 3).map((button) => ({ type: "reply", reply: { id: button.id, title: short(button.title, 20) } })) },
+  },
+});
+const listMessage = (body: string, button: string, rows: Array<{ id: string; title: string; description?: string }>): MetaOutbound => ({
+  messaging_product: "whatsapp", type: "interactive", interactive: {
+    type: "list", body: { text: body }, action: { button: short(button, 20), sections: [{ title: "Options", rows: rows.slice(0, 10).map((row) => ({ id: row.id, title: short(row.title, 24), ...(row.description ? { description: short(row.description, 72) } : {}) })) }] },
+  },
+});
+const flowMessage = (flowId: string): MetaOutbound => ({
+  messaging_product: "whatsapp", type: "interactive", interactive: {
+    type: "flow", header: { type: "text", text: "Choose appointment date" }, body: { text: "Select your preferred appointment date." }, action: {
+      name: "flow", parameters: { flow_message_version: "3", flow_token: "appointment-date", flow_id: flowId, flow_cta: "Choose date", flow_action: "navigate", flow_action_payload: { screen: "APPOINTMENT_DATE" } },
+    },
+  },
+});
+const languageButtons = () => buttonsMessage("Please choose your preferred language.", [
+  { id: "tap:language:mr", title: "मराठी" }, { id: "tap:language:hi", title: "हिंदी" }, { id: "tap:language:en", title: "English" },
+]);
+const menuButtons = (language: Language) => buttonsMessage(language === "Marathi" ? "कृपया सेवा निवडा." : language === "Hindi" ? "कृपया सेवा चुनें।" : "Please choose a service.", [
+  { id: "tap:menu:book", title: "Book Appointment" }, { id: "tap:menu:doctors", title: "Doctors" }, { id: "tap:menu:timings", title: "Timings" },
+]);
+const dateButtons = () => buttonsMessage("Choose your preferred appointment date.", [
+  { id: "tap:date:today", title: "Today" }, { id: "tap:date:tomorrow", title: "Tomorrow" }, { id: "tap:date:custom", title: "Custom Date" },
+]);
+const choiceId = (message: MetaMessage) => message.interactive?.button_reply?.id ?? message.interactive?.list_reply?.id ?? "";
+const flowDate = (message: MetaMessage) => {
+  const raw = message.interactive?.nfm_reply?.response_json;
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw) as Record<string, unknown>;
+    const date = value.appointment_date ?? value.date ?? value.preferred_date;
+    return typeof date === "string" ? date : null;
+  } catch { return null; }
+};
+
+async function sendMetaMessage(phoneNumberId: string, encryptedToken: string, recipient: string, message: string | MetaOutbound) {
   const response = await fetch(`https://graph.facebook.com/v22.0/${encodeURIComponent(phoneNumberId)}/messages`, {
     method: "POST",
     headers: { Authorization: `Bearer ${decrypt(encryptedToken)}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ messaging_product: "whatsapp", to: recipient, type: "text", text: { body: text } }),
+    body: JSON.stringify({ ...(typeof message === "string" ? plainMessage(message) : message), to: recipient }),
   });
   if (!response.ok) throw new Error(`Meta Cloud API ${response.status}: ${await response.text()}`);
 }
@@ -119,6 +168,137 @@ async function getGroqHelp(db: ReturnType<typeof serviceClient>, hospitalId: str
   const indiaNow = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
   const nowPart = (name: string) => indiaNow.find((part) => part.type === name)?.value ?? "";
   return askGroqReceptionist({ language, patientMessage, provider, apiKey, model: configuredAi?.model ?? undefined, context: { hospitalName: settings?.hospital_name ?? "Our hospital", openingTime: String(settings?.opening_time ?? "09:00"), closingTime: String(settings?.closing_time ?? "17:00"), departments: settings?.departments ?? [], doctors: (doctors ?? []).map((doctor) => `${doctor.name} (${doctor.department})`), currentIndiaDate: `${nowPart("year")}-${nowPart("month")}-${nowPart("day")}`, currentIndiaTime: `${nowPart("hour")}:${nowPart("minute")} IST` } });
+}
+
+async function departmentPicker(db: ReturnType<typeof serviceClient>, hospitalId: string): Promise<MetaOutbound> {
+  const { data: doctors, error } = await db.from("doctors").select("department").eq("hospital_id", hospitalId).eq("enabled", true).order("department");
+  if (error) throw error;
+  const departments = [...new Set((doctors ?? []).map((doctor) => String(doctor.department).trim()).filter(Boolean))];
+  if (!departments.length) return plainMessage("No departments have an available doctor right now. Please contact the hospital.");
+  return listMessage("Choose a department.", "Departments", departments.map((department) => ({ id: `tap:department:${encodeURIComponent(department)}`, title: department })));
+}
+
+async function slotsPicker(db: ReturnType<typeof serviceClient>, hospitalId: string, doctor: Doctor, date: string): Promise<TapResult> {
+  const slots = await availableSlots(hospitalId, doctor, date);
+  if (!slots.length) return { log: `No slots available for ${date}.`, outgoing: [plainMessage(`No slots are available on ${date}. Please choose another date.`), dateButtons()] };
+  const groups = Array.from({ length: Math.ceil(slots.length / 10) }, (_, index) => slots.slice(index * 10, index * 10 + 10));
+  return {
+    log: `Sent ${slots.length} live appointment slot${slots.length === 1 ? "" : "s"} for ${date}.`,
+    outgoing: groups.map((group, index) => listMessage(groups.length === 1 ? "Choose an available time slot." : `Choose an available time slot (${index * 10 + 1}-${index * 10 + group.length} of ${slots.length}).`, "Time slots", group.map((slot) => ({ id: `tap:slot:${slot}`, title: displayTime(slot) })))),
+  };
+}
+
+async function runTapBooking(input: {
+  db: ReturnType<typeof serviceClient>; hospitalId: string; conversationId: string; patientPhone: string; draft: Draft | null; message: MetaMessage; text: string; now: string;
+}): Promise<TapResult | null> {
+  const { db, hospitalId, conversationId, patientPhone, message, text, now } = input;
+  let draft = input.draft;
+  const tap = choiceId(message);
+  const selectedFlowDate = flowDate(message);
+  if (!draft) {
+    await db.from("appointment_drafts").upsert({ conversation_id: conversationId, language: "English", stage: "tap_language", patient_name: null, doctor_or_department: null, preferred_date: null, reason: null, offered_slots: null, updated_at: now });
+    return { log: "Sent interactive language selection.", outgoing: [languageButtons()] };
+  }
+  if (!draft.stage.startsWith("tap_")) return null;
+
+  if (draft.stage === "tap_language") {
+    const language = tap === "tap:language:mr" ? "Marathi" : tap === "tap:language:hi" ? "Hindi" : tap === "tap:language:en" ? "English" : null;
+    if (!language) return { log: "Waiting for language button selection.", outgoing: [languageButtons()] };
+    await db.from("appointment_drafts").update({ language, stage: "tap_menu", updated_at: now }).eq("conversation_id", conversationId);
+    return { log: `Language selected: ${language}.`, outgoing: [menuButtons(language)] };
+  }
+
+  if (draft.stage === "tap_menu") {
+    if (tap === "tap:menu:timings") return { log: "Sent hospital timings.", outgoing: [plainMessage(await getHospitalHelp(db, hospitalId, draft.language)), menuButtons(draft.language)] };
+    if (tap === "tap:menu:doctors") return { log: "Sent interactive department list.", outgoing: [await departmentPicker(db, hospitalId)] };
+    if (tap !== "tap:menu:book") return { log: "Waiting for menu selection.", outgoing: [menuButtons(draft.language)] };
+    const { data: patient, error } = await db.from("patients").select("full_name").eq("hospital_id", hospitalId).eq("phone_number", patientPhone).maybeSingle();
+    if (error) throw error;
+    if (!patient?.full_name) {
+      await db.from("appointment_drafts").update({ stage: "tap_name", updated_at: now }).eq("conversation_id", conversationId);
+      return { log: "Requested patient name.", outgoing: [plainMessage("Please type the patient's full name to continue.")] };
+    }
+    await db.from("appointment_drafts").update({ patient_name: patient.full_name, stage: "tap_department", updated_at: now }).eq("conversation_id", conversationId);
+    return { log: "Sent interactive department list.", outgoing: [await departmentPicker(db, hospitalId)] };
+  }
+
+  if (draft.stage === "tap_name") {
+    if (message.type !== "text" || !validName(text)) return { log: "Waiting for a valid patient name.", outgoing: [plainMessage("Please type a valid full name, for example: Riya Patil.")] };
+    const { error } = await db.from("patients").upsert({ hospital_id: hospitalId, phone_number: patientPhone, full_name: clean(text), last_seen: now }, { onConflict: "hospital_id,phone_number" });
+    if (error) throw error;
+    await db.from("appointment_drafts").update({ patient_name: clean(text), stage: "tap_department", updated_at: now }).eq("conversation_id", conversationId);
+    return { log: "Patient name saved; sent department list.", outgoing: [await departmentPicker(db, hospitalId)] };
+  }
+
+  if (draft.stage === "tap_department") {
+    if (!tap.startsWith("tap:department:")) return { log: "Waiting for department selection.", outgoing: [await departmentPicker(db, hospitalId)] };
+    const department = decodeURIComponent(tap.slice("tap:department:".length));
+    const { data: doctors, error } = await db.from("doctors").select("id,name,department").eq("hospital_id", hospitalId).eq("department", department).eq("enabled", true).order("name");
+    if (error) throw error;
+    if (!doctors?.length) return { log: "Selected department has no available doctors.", outgoing: [plainMessage("No doctors are currently available in that department."), await departmentPicker(db, hospitalId)] };
+    await db.from("appointment_drafts").update({ doctor_or_department: department, stage: "tap_doctor", updated_at: now }).eq("conversation_id", conversationId);
+    return { log: `Sent ${doctors.length} available doctor choices.`, outgoing: [listMessage("Choose a doctor.", "Doctors", doctors.map((doctor) => ({ id: `tap:doctor:${doctor.id}`, title: doctor.name, description: doctor.department })))] };
+  }
+
+  if (draft.stage === "tap_doctor") {
+    if (!tap.startsWith("tap:doctor:")) return { log: "Waiting for doctor selection.", outgoing: [plainMessage("Please choose a doctor from the list.")] };
+    const doctorId = tap.slice("tap:doctor:".length);
+    const { data: doctor, error } = await db.from("doctors").select("id").eq("hospital_id", hospitalId).eq("id", doctorId).eq("enabled", true).maybeSingle();
+    if (error) throw error;
+    if (!doctor) return { log: "Unavailable doctor selection.", outgoing: [plainMessage("That doctor is no longer available. Please choose another department."), await departmentPicker(db, hospitalId)] };
+    await db.from("appointment_drafts").update({ doctor_or_department: doctor.id, stage: "tap_date", updated_at: now }).eq("conversation_id", conversationId);
+    return { log: "Sent date reply buttons.", outgoing: [dateButtons()] };
+  }
+
+  if (draft.stage === "tap_date") {
+    if (tap === "tap:date:custom") {
+      const flowId = process.env.META_APPOINTMENT_DATE_FLOW_ID;
+      return flowId ? { log: "Opened official WhatsApp custom-date Flow.", outgoing: [flowMessage(flowId)] } : { log: "Custom-date Flow is not configured.", outgoing: [plainMessage("Custom date selection is not available yet. Please choose Today or Tomorrow."), dateButtons()] };
+    }
+    const tomorrow = new Date(`${todayInIndia()}T00:00:00Z`); tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    const date = selectedFlowDate ?? (tap === "tap:date:today" ? todayInIndia() : tap === "tap:date:tomorrow" ? tomorrow.toISOString().slice(0, 10) : null);
+    if (!date || !validDate(date)) return { log: "Waiting for date selection.", outgoing: [dateButtons()] };
+    const { data: doctor, error } = await db.from("doctors").select("id,name,department,working_days,start_time,end_time,consultation_duration").eq("hospital_id", hospitalId).eq("id", draft.doctor_or_department ?? "").eq("enabled", true).maybeSingle();
+    if (error) throw error;
+    if (!doctor) return { log: "Doctor unavailable before date selection.", outgoing: [plainMessage("That doctor is no longer available. Please start again."), menuButtons(draft.language)] };
+    await db.from("appointment_drafts").update({ preferred_date: date, stage: "tap_slot", updated_at: now }).eq("conversation_id", conversationId);
+    return slotsPicker(db, hospitalId, doctor as Doctor, date);
+  }
+
+  if (draft.stage === "tap_slot") {
+    const slot = tap.startsWith("tap:slot:") ? tap.slice("tap:slot:".length) : null;
+    if (!slot || !draft.preferred_date) return { log: "Waiting for slot selection.", outgoing: [plainMessage("Please select an available time slot from the list.")] };
+    const { data: doctor, error } = await db.from("doctors").select("name,department").eq("hospital_id", hospitalId).eq("id", draft.doctor_or_department ?? "").maybeSingle();
+    if (error) throw error;
+    await db.from("appointment_drafts").update({ offered_slots: [slot], stage: "tap_confirm", updated_at: now }).eq("conversation_id", conversationId);
+    const summary = `Appointment summary\nPatient: ${draft.patient_name ?? "Patient"}\nDoctor: ${doctor?.name ?? "Doctor"}\nDepartment: ${doctor?.department ?? ""}\nDate: ${draft.preferred_date}\nTime: ${displayTime(slot)}`;
+    return { log: "Sent appointment confirmation buttons.", outgoing: [buttonsMessage(summary, [{ id: "tap:confirm", title: "Confirm Appointment" }, { id: "tap:back", title: "Back" }, { id: "tap:cancel", title: "Cancel" }])] };
+  }
+
+  if (draft.stage === "tap_confirm") {
+    if (tap === "tap:cancel") { await db.from("appointment_drafts").delete().eq("conversation_id", conversationId); return { log: "Appointment booking cancelled.", outgoing: [plainMessage("Appointment booking cancelled."), menuButtons(draft.language)] }; }
+    if (tap === "tap:back") { await db.from("appointment_drafts").update({ stage: "tap_date", offered_slots: null, updated_at: now }).eq("conversation_id", conversationId); return { log: "Returned to date selection.", outgoing: [dateButtons()] }; }
+    if (tap !== "tap:confirm") return { log: "Waiting for confirmation button.", outgoing: [plainMessage("Please tap Confirm Appointment, Back, or Cancel.")] };
+    const slot = draft.offered_slots?.[0];
+    const [{ data: doctor, error: doctorError }, { data: patient, error: patientError }] = await Promise.all([
+      db.from("doctors").select("id,name,department,working_days,start_time,end_time,consultation_duration").eq("hospital_id", hospitalId).eq("id", draft.doctor_or_department ?? "").eq("enabled", true).maybeSingle(),
+      db.from("patients").select("id,full_name").eq("hospital_id", hospitalId).eq("phone_number", patientPhone).maybeSingle(),
+    ]);
+    if (doctorError || patientError) throw doctorError ?? patientError;
+    if (!slot || !doctor || !patient || !draft.preferred_date || !(await availableSlots(hospitalId, doctor as Doctor, draft.preferred_date)).includes(slot)) {
+      await db.from("appointment_drafts").update({ stage: "tap_date", offered_slots: null, updated_at: now }).eq("conversation_id", conversationId);
+      return { log: "Selected slot became unavailable; refreshed slots.", outgoing: [plainMessage("That slot is no longer available. Please choose another date."), dateButtons()] };
+    }
+    const { error } = await db.from("appointments").insert({ hospital_id: hospitalId, patient_id: patient.id, conversation_id: conversationId, doctor_id: doctor.id, patient_name: draft.patient_name ?? patient.full_name, phone_number: patientPhone, doctor_name: doctor.name, department: doctor.department, appointment_date: draft.preferred_date, appointment_time: slot, reason: draft.reason, status: "upcoming" });
+    if (error?.code === "23505") {
+      await db.from("appointment_drafts").update({ stage: "tap_date", offered_slots: null, updated_at: now }).eq("conversation_id", conversationId);
+      return { log: "Slot conflicted during insert; returned to date selection.", outgoing: [plainMessage("That slot was just booked. Please choose another date."), dateButtons()] };
+    }
+    if (error) throw error;
+    await db.from("appointment_drafts").delete().eq("conversation_id", conversationId);
+    return { log: "Appointment confirmed and saved to dashboard.", outgoing: [plainMessage(`Appointment confirmed with ${doctor.name} (${doctor.department}) on ${draft.preferred_date} at ${displayTime(slot)}.`)] };
+  }
+  return null;
 }
 
 // This table is added by supabase/meta-migration.sql. The fallback keeps an
@@ -171,7 +351,7 @@ export async function POST(request: NextRequest) {
     const phoneNumberId = value?.metadata?.phone_number_id;
     const patientPhone = incoming?.from?.replace(/\D/g, "") ?? "";
     const text = incoming?.type === "text" ? clean(incoming.text?.body ?? "") : "";
-    if (!phoneNumberId || !patientPhone || !text) return NextResponse.json({ ok: true });
+    if (!incoming || !phoneNumberId || !patientPhone || (!text && incoming.type !== "interactive")) return NextResponse.json({ ok: true });
 
     db = serviceClient();
     const { data: connection, error: connectionError } = await db.from("meta_connections").select("*").eq("phone_number_id", phoneNumberId).maybeSingle();
@@ -194,9 +374,12 @@ export async function POST(request: NextRequest) {
     if (draftError) throw draftError;
     let draft = draftRow as Draft | null;
     let reply = "";
+    let interactiveReplies: MetaOutbound[] | null = null;
     const reset = /^(restart|start over|new appointment|book again|cancel|stop|navin|punha|नवीन|पुन्हा)$/i.test(text);
 
-    if (draft && draft.stage !== "language") {
+    const tapResult = await runTapBooking({ db, hospitalId, conversationId: conversation.id, patientPhone, draft, message: incoming, text, now });
+
+    if (!tapResult && draft && draft.stage !== "language") {
       const detectedLanguage = languageFromMessage(text);
       if (detectedLanguage && detectedLanguage !== draft.language) {
         await db.from("appointment_drafts").update({ language: detectedLanguage, updated_at: now }).eq("conversation_id", conversation.id);
@@ -204,7 +387,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (reset) {
+    if (tapResult) {
+      reply = tapResult.log;
+      interactiveReplies = tapResult.outgoing;
+    } else if (reset) {
       await db.from("appointment_drafts").upsert({ conversation_id: conversation.id, language: "English", stage: "intent", patient_name: null, doctor_or_department: null, preferred_date: null, reason: null, offered_slots: null, updated_at: now });
       reply = `${languageMenu}\n\n${intentMenu("English")}`;
     } else if (!draft) {
@@ -298,7 +484,7 @@ export async function POST(request: NextRequest) {
 
     const { error: replyError } = await db.from("messages").insert({ conversation_id: conversation.id, role: "assistant", content: reply });
     if (replyError) throw replyError;
-    await sendMetaMessage(connection.phone_number_id, connection.access_token_encrypted, patientPhone, reply);
+    for (const message of interactiveReplies ?? [plainMessage(reply)]) await sendMetaMessage(connection.phone_number_id, connection.access_token_encrypted, patientPhone, message);
     await db.from("meta_connections").update({ status: "connected", last_error: null, updated_at: now }).eq("id", connection.id);
     if (eventId) await db.from("whatsapp_webhook_events").update({ status: "completed", completed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", eventId);
     return NextResponse.json({ ok: true });
