@@ -46,17 +46,31 @@ const messages = {
 
 const clean = (value: string) => value.trim();
 const validName = (value: string) => /^[\p{L}][\p{L}\s.'-]{1,59}$/u.test(clean(value));
-const languageFor = (value: string): Language | null => ({ "1": "Marathi", marathi: "Marathi", "मराठी": "Marathi", mr: "Marathi", "2": "Hindi", hindi: "Hindi", "हिंदी": "Hindi", hi: "Hindi", "3": "English", english: "English", en: "English" }[clean(value).toLowerCase()] as Language | undefined) ?? null;
+const languageFor = (value: string): Language | null => {
+  const normalized = clean(value).toLowerCase().normalize("NFC");
+  // Accept the common English spellings plus the Hindi and Marathi spellings
+  // patients normally type in WhatsApp. This deliberately supports phrases
+  // such as "मराठीत बोल" and "हिन्दी में" as well as a single word.
+  if (["1", "marathi", "mr", "मराठी", "मराठीत", "मराठीमध्ये"].includes(normalized) || /(^|\s)(marathi|मराठी|मराठीत)(\s|$)/u.test(normalized)) return "Marathi";
+  if (["2", "hindi", "hi", "हिंदी", "हिन्दी", "हिंदी में", "हिन्दी में"].includes(normalized) || /(^|\s)(hindi|हिंदी|हिन्दी)(\s|$)/u.test(normalized)) return "Hindi";
+  if (["3", "english", "en"].includes(normalized) || /(^|\s)(english|inglish)(\s|$)/u.test(normalized)) return "English";
+  return null;
+};
 // Keep the conversation in the patient's chosen language. When they naturally
 // switch scripts mid-chat, recognise common Hindi/Marathi phrases too.
 const languageFromMessage = (value: string): Language | null => {
   const explicit = languageFor(value);
   if (explicit && !/^[123]$/.test(clean(value))) return explicit;
   if (!/[\u0900-\u097f]/u.test(value)) return null;
-  if (/(आहे|आहेत|मला|माझे|तुमचे|उद्या|कृपया|सांगा|वेळा)/u.test(value)) return "Marathi";
-  if (/(है|हैं|मुझे|मेरा|आपका|कल|कृपया|बताएं|समय)/u.test(value)) return "Hindi";
+  if (/(आहे|आहेत|मला|माझे|तुमचे|उद्या|कृपया|सांगा|वेळा|मराठीत|नमस्कार)/u.test(value)) return "Marathi";
+  if (/(है|हैं|मुझे|मेरा|आपका|कल|कृपया|बताएं|समय|हिन्दी|हिंदी|नमस्ते|हैलो)/u.test(value)) return "Hindi";
   return null;
 };
+const aiUnavailable = (language: Language) => language === "Marathi"
+  ? "सध्या AI मदत उपलब्ध नाही. अपॉइंटमेंट बुक करण्यासाठी 1, डॉक्टर/विभागांसाठी 2, किंवा हॉस्पिटल वेळेसाठी 3 reply करा."
+  : language === "Hindi"
+    ? "अभी AI सहायता उपलब्ध नहीं है। अपॉइंटमेंट बुक करने के लिए 1, डॉक्टर/विभाग के लिए 2, या अस्पताल समय के लिए 3 reply करें।"
+    : "The AI assistant is temporarily unavailable. Reply 1 to book an appointment, 2 for doctors/departments, or 3 for hospital timings.";
 const isToday = (value: string) => /^(1|today|aaj|आज|आजचा|आजची)$/iu.test(clean(value));
 const isTomorrow = (value: string) => /^(2|tomorrow|kal|कल|उद्या)$/iu.test(clean(value));
 const isConfirmation = (value: string) => /^(yes|y|1|ho|haan|ha|हाँ|हां|हो|होय)$/iu.test(clean(value));
@@ -211,7 +225,7 @@ export async function POST(request: NextRequest) {
       else if (text === "1" || isBooking(text)) { await db.from("appointment_drafts").update({ stage: "name", updated_at: now }).eq("conversation_id", conversation.id); reply = messages[draft.language].name; }
       else {
         const informativeReply = await getGroqHelp(db, hospitalId, draft.language, text);
-        reply = informativeReply ? `${informativeReply}\n\n${intentMenu(draft.language)}` : intentMenu(draft.language);
+        reply = informativeReply ? `${informativeReply}\n\n${intentMenu(draft.language)}` : `${aiUnavailable(draft.language)}\n\n${intentMenu(draft.language)}`;
       }
     } else if (draft.stage === "name") {
       if (!validName(text)) reply = `${messages[draft.language].name}\nExample: Riya Patil`;
