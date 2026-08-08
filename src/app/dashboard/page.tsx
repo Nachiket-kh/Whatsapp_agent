@@ -20,8 +20,14 @@ export default async function DashboardPage() {
   const { data: conversations } = await db.from("conversations").select("*").eq("hospital_id", hospitalId).order("updated_at", { ascending: false });
   const conversationIds = (conversations ?? []).map((conversation) => conversation.id);
   const { data: messages } = conversationIds.length ? await db.from("messages").select("*").in("conversation_id", conversationIds).order("created_at", { ascending: true }) : { data: [] };
-  const [{ data: appointments }, { data: doctors }, { data: patients }, { data: settings }] = await Promise.all([
+  const [{ data: appointments }, { data: doctors }, { data: patients }, { data: loadedSettings }] = await Promise.all([
     db.from("appointments").select("*").eq("hospital_id", hospitalId).order("appointment_date").order("appointment_time"), db.from("doctors").select("*").eq("hospital_id", hospitalId).order("name"), db.from("patients").select("*").eq("hospital_id", hospitalId).order("last_seen", { ascending: false }), db.from("hospital_settings").select("*").eq("hospital_id", hospitalId).maybeSingle(),
   ]);
+  let settings = loadedSettings;
+  if (!settings) {
+    const { data: createdSettings, error } = await db.from("hospital_settings").upsert({ hospital_id: hospitalId }, { onConflict: "hospital_id" }).select("*").single();
+    if (error) console.error("Dashboard default hospital settings creation failed", error);
+    else settings = createdSettings;
+  }
   return <DashboardClient hospitalId={hospitalId} initialConversations={(conversations ?? []) as Conversation[]} initialMessages={(messages ?? []) as Message[]} initialAppointments={(appointments ?? []) as Appointment[]} initialDoctors={(doctors ?? []) as Doctor[]} initialPatients={(patients ?? []) as Patient[]} initialSettings={settings as HospitalSettings | null} />;
 }

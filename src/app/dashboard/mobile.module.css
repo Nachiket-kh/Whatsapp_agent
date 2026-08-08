@@ -1,4 +1,7 @@
 .checkup { display:inline-flex; align-items:center; gap:7px; color:#a8ded0; font-size:.8rem; white-space:nowrap; cursor:pointer; }
+.chatActions { display:flex; align-items:center; justify-content:flex-end; gap:7px; flex-wrap:wrap; }
+.chatActions button { color:#bdeadd; border:1px solid #2b6958; background:#102825; padding:5px 8px; border-radius:7px; font-size:.76rem; }
+.chatActions .deleteContact { color:#ffb2b7; border-color:#754046; background:#321b20; }
 .checkup input { accent-color:#14b887; width:16px; height:16px; }
 .availability { display:inline-flex; align-items:center; gap:8px; margin-top:14px; cursor:pointer; font-size:.82rem; font-weight:700; }
 .availability input { appearance:none; position:relative; width:38px; height:22px; margin:0; border-radius:99px; background:#56343a; cursor:pointer; transition:background .2s ease; }
@@ -26,6 +29,7 @@
   .responsive :global(.chat-list button) { padding:10px 7px; font-size:.72rem; overflow:hidden; }
   .responsive :global(.chat-list small) { overflow:hidden; text-overflow:ellipsis; }
   .responsive :global(.whatsapp-thread header) { padding:11px; gap:8px; }
+  .chatActions { gap:4px; }.chatActions button { padding:4px 6px; font-size:.7rem; }
   .responsive :global(.whatsapp-thread main) { min-height:0; padding:12px; }
   .responsive :global(.bubble) { max-width:90%; overflow-wrap:anywhere; }
   .responsive :global(.table-wrap) { max-width:calc(100vw - 28px); }
