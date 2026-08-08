@@ -19,7 +19,7 @@ type Draft = {
 };
 type MetaMessage = { id?: string; from?: string; type?: string; text?: { body?: string } };
 
-const languageMenu = "CareFlow Hospital Reception mein aapka swagat hai. Kripya bhasha chuniye:\n1. मराठी\n2. हिंदी\n3. English";
+const languageMenu = "Welcome to CareFlow Hospital Reception. We will assist you in English by default. To switch language, reply: Marathi / मराठी or Hindi / हिंदी.";
 const intentMenu = (language: Language) => language === "Marathi"
   ? "नमस्कार! मी तुम्हाला कशी मदत करू?\n1. अपॉइंटमेंट बुक करा\n2. डॉक्टर / विभाग\n3. हॉस्पिटलच्या वेळा"
   : language === "Hindi"
@@ -175,13 +175,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (reset) {
-      await db.from("appointment_drafts").upsert({ conversation_id: conversation.id, language: "Marathi", stage: "language", patient_name: null, doctor_or_department: null, preferred_date: null, reason: null, offered_slots: null, updated_at: now });
-      reply = languageMenu;
+      await db.from("appointment_drafts").upsert({ conversation_id: conversation.id, language: "English", stage: "intent", patient_name: null, doctor_or_department: null, preferred_date: null, reason: null, offered_slots: null, updated_at: now });
+      reply = `${languageMenu}\n\n${intentMenu("English")}`;
     } else if (!draft) {
-      // The first interaction always asks for a language. Once chosen, every
-      // subsequent prompt is rendered in that language's native script.
-      await db.from("appointment_drafts").upsert({ conversation_id: conversation.id, language: "Marathi", stage: "language", patient_name: null, doctor_or_department: null, preferred_date: null, reason: null, offered_slots: null, updated_at: now });
-      reply = languageMenu;
+      await db.from("appointment_drafts").upsert({ conversation_id: conversation.id, language: "English", stage: "intent", patient_name: null, doctor_or_department: null, preferred_date: null, reason: null, offered_slots: null, updated_at: now });
+      reply = `${languageMenu}\n\n${intentMenu("English")}`;
     } else if (draft.stage === "language") {
       const language = languageFor(text);
       if (!language) reply = languageMenu;
