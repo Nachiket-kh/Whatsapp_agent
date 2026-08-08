@@ -391,8 +391,9 @@ export async function POST(request: NextRequest) {
       reply = tapResult.log;
       interactiveReplies = tapResult.outgoing;
     } else if (reset) {
-      await db.from("appointment_drafts").upsert({ conversation_id: conversation.id, language: "English", stage: "intent", patient_name: null, doctor_or_department: null, preferred_date: null, reason: null, offered_slots: null, updated_at: now });
-      reply = `${languageMenu}\n\n${intentMenu("English")}`;
+      await db.from("appointment_drafts").upsert({ conversation_id: conversation.id, language: "English", stage: "tap_language", patient_name: null, doctor_or_department: null, preferred_date: null, reason: null, offered_slots: null, updated_at: now });
+      reply = "Sent interactive language selection.";
+      interactiveReplies = [languageButtons()];
     } else if (!draft) {
       await db.from("appointment_drafts").upsert({ conversation_id: conversation.id, language: "English", stage: "intent", patient_name: null, doctor_or_department: null, preferred_date: null, reason: null, offered_slots: null, updated_at: now });
       reply = `${languageMenu}\n\n${intentMenu("English")}`;
