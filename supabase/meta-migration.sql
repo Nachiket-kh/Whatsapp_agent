@@ -34,3 +34,30 @@ do $$ begin
     where p.pubname='supabase_realtime' and n.nspname='public' and c.relname='meta_connections'
   ) then alter publication supabase_realtime add table public.meta_connections; end if;
 end $$;
+
+-- Durable idempotency records for Meta retries. Meta can deliver the same
+-- message more than once; the unique provider message id guarantees that an
+-- appointment or reply is created only once even during high traffic.
+create table if not exists public.whatsapp_webhook_events (
+  id uuid primary key default gen_random_uuid(),
+  hospital_id uuid not null references public.hospitals(id) on delete cascade,
+  conversation_id uuid references public.conversations(id) on delete set null,
+  provider text not null default 'meta' check (provider = 'meta'),
+  provider_message_id text not null,
+  status text not null default 'processing' check (status in ('processing', 'completed', 'failed')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  completed_at timestamptz,
+  unique (provider, provider_message_id)
+);
+
+create index if not exists whatsapp_webhook_events_hospital_status_idx
+  on public.whatsapp_webhook_events (hospital_id, status, created_at desc);
+
+alter table public.whatsapp_webhook_events enable row level security;
+drop policy if exists "members read their webhook events" on public.whatsapp_webhook_events;
+create policy "members read their webhook events" on public.whatsapp_webhook_events
+  for select to authenticated using (public.is_hospital_member(hospital_id));
+drop policy if exists "service role manages webhook events" on public.whatsapp_webhook_events;
+create policy "service role manages webhook events" on public.whatsapp_webhook_events
+  for all to service_role using (true) with check (true);
