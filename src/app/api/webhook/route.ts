@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { decrypt, secretHash } from "@/lib/crypto";
-import { availableSlots, Doctor, todayInIndia, validDate } from "@/lib/n8n";
+import { availableSlots, Doctor, slotBlockReason, todayInIndia, validDate, weekdayForDate } from "@/lib/n8n";
 import { serviceClient } from "@/lib/hospital";
 import { cleanupExpiredChatsWhenDue } from "@/lib/chat-retention";
 import { askGroqReceptionist } from "@/lib/groq";
@@ -114,8 +114,15 @@ const t = (language: Language) => tapCopy[language];
 const languageButtons = () => buttonsMessage("Please choose your preferred language.", [
   { id: "tap:language:mr", title: "मराठी" }, { id: "tap:language:hi", title: "हिंदी" }, { id: "tap:language:en", title: "English" },
 ]);
+const hospitalInformationTitle = (language: Language) => {
+  if (language === "Hindi") return "अस्पताल जानकारी";
+  if (language === "Marathi") return "हॉस्पिटल माहिती";
+  return "Hospital information";
+};
+
 const menuButtons = (language: Language) => buttonsMessage(t(language).service, [
-  { id: "tap:menu:book", title: t(language).book }, { id: "tap:menu:doctors", title: t(language).doctors }, { id: "tap:menu:timings", title: t(language).timings },
+  { id: "tap:menu:book", title: t(language).book },
+  { id: "tap:menu:info", title: hospitalInformationTitle(language) },
 ]);
 const dateButtons = (language: Language) => buttonsMessage(t(language).date, [
   { id: "tap:date:today", title: t(language).today }, { id: "tap:date:tomorrow", title: t(language).tomorrow }, { id: "tap:date:custom", title: t(language).custom },
@@ -141,17 +148,20 @@ async function sendMetaMessage(phoneNumberId: string, encryptedToken: string, re
 }
 
 async function getHospitalHelp(db: ReturnType<typeof serviceClient>, hospitalId: string, language: Language) {
-  const [{ data: settings, error: settingsError }, { data: doctors, error: doctorsError }] = await Promise.all([
-    db.from("hospital_settings").select("hospital_name,opening_time,closing_time,departments").eq("hospital_id", hospitalId).maybeSingle(),
-    db.from("doctors").select("name,department").eq("hospital_id", hospitalId).eq("enabled", true).order("department").order("name"),
-  ]);
+  const { data: settings, error: settingsError } = await db
+    .from("hospital_settings")
+    .select("hospital_name,opening_time,closing_time,departments,receptionist_number")
+    .eq("hospital_id", hospitalId)
+    .maybeSingle();
   if (settingsError) throw settingsError;
-  if (doctorsError) throw doctorsError;
-  const doctorList = (doctors ?? []).map((doctor) => `${doctor.name} - ${doctor.department}`).join("\n") || "No doctors are currently marked available.";
-  const departments = settings?.departments?.length ? settings.departments.join(", ") : "Please ask the hospital reception.";
-  const prefix = language === "Marathi" ? "हॉस्पिटलची माहिती" : language === "Hindi" ? "अस्पताल की जानकारी" : "Hospital information";
-  const labels = language === "Marathi" ? { timing: "वेळ", departments: "विभाग", doctors: "उपलब्ध डॉक्टर" } : language === "Hindi" ? { timing: "समय", departments: "विभाग", doctors: "उपलब्ध डॉक्टर" } : { timing: "Timings", departments: "Departments", doctors: "Available doctors" };
-  return `${prefix}: ${settings?.hospital_name ?? "CareFlow Hospital"}\n${labels.timing}: ${displayTime(String(settings?.opening_time ?? "09:00"))} to ${displayTime(String(settings?.closing_time ?? "17:00"))}\n${labels.departments}: ${departments}\n${labels.doctors}:\n${doctorList}\n\n${intentMenu(language)}`;
+  const departmentsOnly = settings?.departments?.length ? settings.departments.join(", ") : language === "Hindi" ? "कृपया अस्पताल रिसेप्शन से पूछें।" : language === "Marathi" ? "कृपया हॉस्पिटल रिसेप्शनला विचारा." : "Please contact the hospital reception.";
+  const receptionist = settings?.receptionist_number || (language === "Hindi" ? "रिसेप्शन नंबर उपलब्ध नहीं है।" : language === "Marathi" ? "रिसेप्शन नंबर उपलब्ध नाही." : "Reception number is not available.");
+  const hospitalInfo = language === "Hindi"
+    ? `अस्पताल जानकारी: ${settings?.hospital_name ?? "Hospital"}\nसमय: ${displayTime(String(settings?.opening_time ?? "09:00"))} से ${displayTime(String(settings?.closing_time ?? "17:00"))}\nविभाग: ${departmentsOnly}\nरिसेप्शनिस्ट नंबर: ${receptionist}`
+    : language === "Marathi"
+      ? `हॉस्पिटल माहिती: ${settings?.hospital_name ?? "Hospital"}\nवेळ: ${displayTime(String(settings?.opening_time ?? "09:00"))} ते ${displayTime(String(settings?.closing_time ?? "17:00"))}\nविभाग: ${departmentsOnly}\nरिसेप्शनिस्ट क्रमांक: ${receptionist}`
+      : `Hospital information: ${settings?.hospital_name ?? "Hospital"}\nTimings: ${displayTime(String(settings?.opening_time ?? "09:00"))} to ${displayTime(String(settings?.closing_time ?? "17:00"))}\nDepartments: ${departmentsOnly}\nReceptionist number: ${receptionist}`;
+  return hospitalInfo;
 }
 
 async function getGroqHelp(db: ReturnType<typeof serviceClient>, hospitalId: string, language: Language, patientMessage: string) {
@@ -191,7 +201,21 @@ async function customDatePicker(db: ReturnType<typeof serviceClient>, hospitalId
   return { log: `Sent ${dates.length} future dates with availability.`, outgoing: [listMessage(t(language).custom, t(language).custom, dates.map((date) => ({ id: `custom_date_${date}`, title: displayDate(date, language) })))] };
 }
 
+const unavailableDayMessage = (language: Language, reason: "sunday" | "doctor_unavailable" | "hospital_closed", doctor: Doctor, date: string) => {
+  if (reason === "sunday") return language === "Hindi" ? "रविवार को अपॉइंटमेंट उपलब्ध नहीं हैं। कृपया दूसरी तारीख चुनें।" : language === "Marathi" ? "रविवारी अपॉइंटमेंट उपलब्ध नाहीत. कृपया दुसरी तारीख निवडा." : "Appointments are not available on Sunday. Please choose another date.";
+  if (reason === "hospital_closed") return language === "Hindi" ? "आज अस्पताल की अपॉइंटमेंट सेवा बंद हो चुकी है। कृपया कल या कोई दूसरी तारीख चुनें।" : language === "Marathi" ? "आजची हॉस्पिटल अपॉइंटमेंट सेवा बंद झाली आहे. कृपया उद्या किंवा दुसरी तारीख निवडा." : "The hospital is closed for appointments today. Please choose tomorrow or another date.";
+  const day = weekdayForDate(date);
+  return language === "Hindi" ? `${doctor.name} ${day} को उपलब्ध नहीं हैं। कृपया दूसरी तारीख चुनें।` : language === "Marathi" ? `${doctor.name} ${day} ला उपलब्ध नाहीत. कृपया दुसरी तारीख निवडा.` : `${doctor.name} is not available on ${day}. Please choose another date.`;
+};
+
 async function slotsPicker(db: ReturnType<typeof serviceClient>, hospitalId: string, conversationId: string, now: string, doctor: Doctor, date: string, language: Language): Promise<TapResult> {
+  const { data: settings, error: settingsError } = await db.from("hospital_settings").select("closing_time").eq("hospital_id", hospitalId).maybeSingle();
+  if (settingsError) throw settingsError;
+  const blockReason = slotBlockReason(doctor, date, String(settings?.closing_time ?? doctor.end_time));
+  if (blockReason) {
+    await db.from("appointment_drafts").update({ stage: "tap_date", preferred_date: null, offered_slots: null, updated_at: now }).eq("conversation_id", conversationId);
+    return { log: `Appointment date unavailable: ${blockReason}.`, outgoing: [plainMessage(unavailableDayMessage(language, blockReason, doctor, date)), dateButtons(language)] };
+  }
   const slots = (await availableSlots(hospitalId, doctor, date)).slice(0, 15);
   if (!slots.length) {
     // Return to the date state before showing date buttons again. Without this,
@@ -227,8 +251,7 @@ async function runTapBooking(input: {
   }
 
   if (draft.stage === "tap_menu") {
-    if (tap === "tap:menu:timings") return { log: "Sent hospital timings.", outgoing: [plainMessage(await getHospitalHelp(db, hospitalId, draft.language)), menuButtons(draft.language)] };
-    if (tap === "tap:menu:doctors") return { log: "Sent interactive department list.", outgoing: [await departmentPicker(db, hospitalId, draft.language)] };
+    if (tap === "tap:menu:info") return { log: "Sent hospital information.", outgoing: [plainMessage(await getHospitalHelp(db, hospitalId, draft.language)), menuButtons(draft.language)] };
     if (tap !== "tap:menu:book") return { log: "Waiting for menu selection.", outgoing: [menuButtons(draft.language)] };
     const { data: patient, error } = await db.from("patients").select("full_name").eq("hospital_id", hospitalId).eq("phone_number", patientPhone).maybeSingle();
     if (error) throw error;

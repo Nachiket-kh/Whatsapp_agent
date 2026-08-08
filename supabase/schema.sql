@@ -68,6 +68,7 @@ create table if not exists public.hospital_settings (
   chat_retention_hours integer not null default 24 check (chat_retention_hours between 1 and 720),
   emergency_number text,
   whatsapp_number text,
+  receptionist_number text,
   updated_at timestamptz not null default now()
 );
 

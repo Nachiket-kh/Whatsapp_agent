@@ -30,12 +30,21 @@ function indiaParts(now = new Date()) {
 export const todayInIndia = (now = new Date()) => { const date = indiaParts(now); return `${date.year}-${date.month}-${date.day}`; };
 export const minutesNowInIndia = (now = new Date()) => { const date = indiaParts(now); return Number(date.hour) * 60 + Number(date.minute); };
 export const validDate = (value: string) => /^20\d{2}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && value >= todayInIndia();
-const weekday = (value: string) => new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: "UTC" }).format(new Date(`${value}T12:00:00Z`));
+export const weekdayForDate = (value: string) => new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: "UTC" }).format(new Date(`${value}T12:00:00Z`));
 const minutes = (value: string) => { const [hour, minute] = value.slice(0, 5).split(":").map(Number); return hour * 60 + minute; };
 const asTime = (value: number) => `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
+export type SlotBlockReason = "sunday" | "doctor_unavailable" | "hospital_closed";
+export function slotBlockReason(doctor: Doctor, date: string, closingTime: string): SlotBlockReason | null {
+  const day = weekdayForDate(date);
+  // Sunday is a hospital-wide non-booking day for this application, even if a
+  // doctor profile was accidentally configured with Sunday availability.
+  if (day === "Sunday") return "sunday";
+  if (!doctor.working_days.includes(day)) return "doctor_unavailable";
+  if (date === todayInIndia() && minutesNowInIndia() >= minutes(closingTime)) return "hospital_closed";
+  return null;
+}
 
 export async function availableSlots(hospitalId: string, doctor: Doctor, date: string) {
-  if (!doctor.working_days.includes(weekday(date))) return [];
   const db = serviceClient();
   const [{ data: settings, error: settingsError }, { data: existing, error: existingError }] = await Promise.all([
     db.from("hospital_settings").select("opening_time,closing_time,slot_duration").eq("hospital_id", hospitalId).maybeSingle(),
@@ -43,6 +52,7 @@ export async function availableSlots(hospitalId: string, doctor: Doctor, date: s
   ]);
   if (settingsError) { console.error("n8n hospital settings lookup failed", settingsError); throw settingsError; }
   if (existingError) { console.error("n8n appointment slots lookup failed", existingError); throw existingError; }
+  if (slotBlockReason(doctor, date, String(settings?.closing_time ?? doctor.end_time))) return [];
   const start = Math.max(minutes(doctor.start_time), minutes(settings?.opening_time ?? doctor.start_time));
   const end = Math.min(minutes(doctor.end_time), minutes(settings?.closing_time ?? doctor.end_time));
   const duration = doctor.consultation_duration || settings?.slot_duration || 20;

@@ -14,9 +14,15 @@ export async function POST(request: NextRequest) {
     const departments = Array.isArray(body.departments) ? body.departments.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 30) : [];
     const slot_duration = Math.min(120, Math.max(5, Number(body.slot_duration) || 20));
     const chat_retention_hours = Math.min(720, Math.max(1, Number(body.chat_retention_hours) || 24));
-    const values = { hospital_id: hospitalId, hospital_name, departments, opening_time: String(body.opening_time ?? "09:00").slice(0, 5), closing_time: String(body.closing_time ?? "17:00").slice(0, 5), slot_duration, emergency_number: body.emergency_number ? String(body.emergency_number).trim() : null, whatsapp_number: body.whatsapp_number ? String(body.whatsapp_number).trim() : null, chat_retention_hours };
+    const values = { hospital_id: hospitalId, hospital_name, departments, opening_time: String(body.opening_time ?? "09:00").slice(0, 5), closing_time: String(body.closing_time ?? "17:00").slice(0, 5), slot_duration, emergency_number: body.emergency_number ? String(body.emergency_number).trim() : null, whatsapp_number: body.whatsapp_number ? String(body.whatsapp_number).trim() : null, receptionist_number: body.receptionist_number ? String(body.receptionist_number).trim() : null, chat_retention_hours };
     const db = serviceClient();
     let { data, error } = await db.from("hospital_settings").upsert(values, { onConflict: "hospital_id" }).select("*").single();
+    // Existing installations need the small receptionist-number migration before
+    // they can persist this optional field. Keep their other settings saveable.
+    if (error && String(error.message).includes("receptionist_number")) {
+      const { receptionist_number: _, ...legacyValues } = values;
+      ({ data, error } = await db.from("hospital_settings").upsert(legacyValues, { onConflict: "hospital_id" }).select("*").single());
+    }
     // Allow the core settings to be saved before the optional retention migration is applied.
     if (error && String(error.message).includes("chat_retention_hours")) {
       const { chat_retention_hours: _, ...legacyValues } = values;
@@ -26,11 +32,11 @@ export async function POST(request: NextRequest) {
     // settings were introduced. Preserve their ability to save settings while
     // showing a clear migration path for full tenant isolation.
     if (error && /hospital_id|on conflict/i.test(String(error.message))) {
-      const { hospital_id: _, ...legacyValues } = values;
+      const { hospital_id: _, receptionist_number: __, ...legacyValues } = values;
       ({ data, error } = await db.from("hospital_settings").upsert({ id: 1, ...legacyValues }, { onConflict: "id" }).select("*").single());
     }
     if (error && String(error.message).includes("chat_retention_hours")) {
-      const { hospital_id: _, chat_retention_hours: __, ...legacyValues } = values;
+      const { hospital_id: _, receptionist_number: __, chat_retention_hours: ___, ...legacyValues } = values;
       ({ data, error } = await db.from("hospital_settings").upsert({ id: 1, ...legacyValues }, { onConflict: "id" }).select("*").single());
     }
     if (error) throw error;
