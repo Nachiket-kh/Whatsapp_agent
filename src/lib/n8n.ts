@@ -23,7 +23,12 @@ export async function hospitalForChannel(channel: { phoneNumberId?: string; inst
   return data.hospital_id as string;
 }
 
-export const todayInIndia = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+function indiaParts(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(now);
+  return Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+}
+export const todayInIndia = (now = new Date()) => { const date = indiaParts(now); return `${date.year}-${date.month}-${date.day}`; };
+export const minutesNowInIndia = (now = new Date()) => { const date = indiaParts(now); return Number(date.hour) * 60 + Number(date.minute); };
 export const validDate = (value: string) => /^20\d{2}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && value >= todayInIndia();
 const weekday = (value: string) => new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: "UTC" }).format(new Date(`${value}T12:00:00Z`));
 const minutes = (value: string) => { const [hour, minute] = value.slice(0, 5).split(":").map(Number); return hour * 60 + minute; };
@@ -42,5 +47,10 @@ export async function availableSlots(hospitalId: string, doctor: Doctor, date: s
   const end = Math.min(minutes(doctor.end_time), minutes(settings?.closing_time ?? doctor.end_time));
   const duration = doctor.consultation_duration || settings?.slot_duration || 20;
   const booked = new Set((existing ?? []).map((item) => String(item.appointment_time).slice(0, 5)));
-  return Array.from({ length: Math.max(0, Math.floor((end - start) / duration)) }, (_, index) => asTime(start + index * duration)).filter((slot) => !booked.has(slot));
+  // For today's bookings, never offer a slot that has already started. The
+  // same generated slot value is later stored in the appointment, so a patient
+  // is never confirmed for a time different from their selected time.
+  const currentMinutes = date === todayInIndia() ? minutesNowInIndia() : -1;
+  return Array.from({ length: Math.max(0, Math.floor((end - start) / duration)) }, (_, index) => asTime(start + index * duration))
+    .filter((slot) => !booked.has(slot) && minutes(slot) > currentMinutes);
 }

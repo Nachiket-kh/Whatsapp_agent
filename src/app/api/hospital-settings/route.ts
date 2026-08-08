@@ -22,6 +22,17 @@ export async function POST(request: NextRequest) {
       const { chat_retention_hours: _, ...legacyValues } = values;
       ({ data, error } = await db.from("hospital_settings").upsert(legacyValues, { onConflict: "hospital_id" }).select("*").single());
     }
+    // Older single-hospital installations used `id = 1` before multi-tenant
+    // settings were introduced. Preserve their ability to save settings while
+    // showing a clear migration path for full tenant isolation.
+    if (error && /hospital_id|on conflict/i.test(String(error.message))) {
+      const { hospital_id: _, ...legacyValues } = values;
+      ({ data, error } = await db.from("hospital_settings").upsert({ id: 1, ...legacyValues }, { onConflict: "id" }).select("*").single());
+    }
+    if (error && String(error.message).includes("chat_retention_hours")) {
+      const { hospital_id: _, chat_retention_hours: __, ...legacyValues } = values;
+      ({ data, error } = await db.from("hospital_settings").upsert({ id: 1, ...legacyValues }, { onConflict: "id" }).select("*").single());
+    }
     if (error) throw error;
     return NextResponse.json({ settings: data });
   } catch (error) {

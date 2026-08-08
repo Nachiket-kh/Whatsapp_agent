@@ -98,7 +98,13 @@ async function getGroqHelp(db: ReturnType<typeof serviceClient>, hospitalId: str
     db.from("doctors").select("name,department").eq("hospital_id", hospitalId).eq("enabled", true).order("department").order("name"),
   ]);
   if (settingsError || doctorsError) { console.error("Groq hospital context lookup failed", settingsError ?? doctorsError); return null; }
-  return askGroqReceptionist({ language, patientMessage, context: { hospitalName: settings?.hospital_name ?? "Our hospital", openingTime: String(settings?.opening_time ?? "09:00"), closingTime: String(settings?.closing_time ?? "17:00"), departments: settings?.departments ?? [], doctors: (doctors ?? []).map((doctor) => `${doctor.name} (${doctor.department})`) } });
+  const { data: configuredAi, error: configuredAiError } = await db.from("ai_connections").select("provider,api_key_encrypted,model,enabled").eq("hospital_id", hospitalId).eq("enabled", true).maybeSingle();
+  if (configuredAiError && !["42P01", "PGRST205"].includes(String(configuredAiError.code ?? ""))) console.error("AI connection lookup failed", configuredAiError);
+  const provider = configuredAi?.provider === "openai" ? "openai" : "groq";
+  const apiKey = configuredAi?.api_key_encrypted ? decrypt(configuredAi.api_key_encrypted) : undefined;
+  const indiaNow = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
+  const nowPart = (name: string) => indiaNow.find((part) => part.type === name)?.value ?? "";
+  return askGroqReceptionist({ language, patientMessage, provider, apiKey, model: configuredAi?.model ?? undefined, context: { hospitalName: settings?.hospital_name ?? "Our hospital", openingTime: String(settings?.opening_time ?? "09:00"), closingTime: String(settings?.closing_time ?? "17:00"), departments: settings?.departments ?? [], doctors: (doctors ?? []).map((doctor) => `${doctor.name} (${doctor.department})`), currentIndiaDate: `${nowPart("year")}-${nowPart("month")}-${nowPart("day")}`, currentIndiaTime: `${nowPart("hour")}:${nowPart("minute")} IST` } });
 }
 
 // This table is added by supabase/meta-migration.sql. The fallback keeps an
