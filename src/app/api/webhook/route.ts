@@ -105,21 +105,20 @@ const listMessage = (body: string, button: string, rows: Array<{ id: string; tit
     type: "list", body: { text: body }, action: { button: short(button, 20), sections: [{ title: "Options", rows: rows.slice(0, 10).map((row) => ({ id: row.id, title: short(row.title, 24), ...(row.description ? { description: short(row.description, 72) } : {}) })) }] },
   },
 });
-const flowMessage = (flowId: string): MetaOutbound => ({
-  messaging_product: "whatsapp", type: "interactive", interactive: {
-    type: "flow", header: { type: "text", text: "Choose appointment date" }, body: { text: "Select your preferred appointment date." }, action: {
-      name: "flow", parameters: { flow_message_version: "3", flow_token: "appointment-date", flow_id: flowId, flow_cta: "Choose date", flow_action: "navigate", flow_action_payload: { screen: "APPOINTMENT_DATE" } },
-    },
-  },
-});
+const tapCopy = {
+  English: { service: "Please choose a service.", book: "Book appointment", doctors: "Doctors", timings: "Timings", department: "Choose a department.", departments: "Departments", doctor: "Choose a doctor.", date: "Choose your preferred appointment date.", today: "Today", tomorrow: "Tomorrow", custom: "Custom date", slot: "Please select an available appointment time.", slots: "Time slots", noSlots: "No available appointment slots are currently available for this date. Please choose another date.", noDoctor: "No doctors are currently available in that department.", name: "Please type the patient's full name to continue.", invalidName: "Please type a valid full name, for example: Riya Patil.", summary: "Appointment summary", patient: "Patient", departmentLabel: "Department", dateLabel: "Date", time: "Time", confirm: "Confirm", back: "Back", cancel: "Cancel", confirmed: "Appointment confirmed", unavailable: "That slot is no longer available. Please select another available slot." },
+  Hindi: { service: "कृपया सेवा चुनें।", book: "बुक अपॉइंटमेंट", doctors: "डॉक्टर", timings: "समय", department: "कृपया विभाग चुनें।", departments: "विभाग", doctor: "कृपया डॉक्टर चुनें।", date: "अपनी पसंदीदा अपॉइंटमेंट तारीख चुनें।", today: "आज", tomorrow: "कल", custom: "अन्य तारीख", slot: "कृपया उपलब्ध अपॉइंटमेंट समय चुनें।", slots: "समय", noSlots: "इस तारीख के लिए कोई अपॉइंटमेंट स्लॉट उपलब्ध नहीं है। कृपया दूसरी तारीख चुनें।", noDoctor: "इस विभाग में अभी कोई डॉक्टर उपलब्ध नहीं है।", name: "कृपया मरीज का पूरा नाम लिखें।", invalidName: "कृपया सही पूरा नाम लिखें, उदाहरण: रिया पाटिल।", summary: "अपॉइंटमेंट सारांश", patient: "मरीज", departmentLabel: "विभाग", dateLabel: "तारीख", time: "समय", confirm: "पुष्टि करें", back: "वापस", cancel: "रद्द करें", confirmed: "अपॉइंटमेंट पक्की हो गई है", unavailable: "यह स्लॉट अब उपलब्ध नहीं है। कृपया दूसरा उपलब्ध स्लॉट चुनें।" },
+  Marathi: { service: "कृपया सेवा निवडा.", book: "अपॉइंटमेंट बुक", doctors: "डॉक्टर", timings: "वेळा", department: "कृपया विभाग निवडा.", departments: "विभाग", doctor: "कृपया डॉक्टर निवडा.", date: "कृपया तुमची अपॉइंटमेंटची तारीख निवडा.", today: "आज", tomorrow: "उद्या", custom: "इतर तारीख", slot: "कृपया उपलब्ध अपॉइंटमेंटची वेळ निवडा.", slots: "वेळा", noSlots: "या तारखेसाठी कोणतीही अपॉइंटमेंटची वेळ उपलब्ध नाही. कृपया दुसरी तारीख निवडा.", noDoctor: "या विभागात सध्या डॉक्टर उपलब्ध नाहीत.", name: "कृपया रुग्णाचे पूर्ण नाव लिहा.", invalidName: "कृपया योग्य पूर्ण नाव लिहा, उदाहरण: रिया पाटील.", summary: "अपॉइंटमेंट सारांश", patient: "रुग्ण", departmentLabel: "विभाग", dateLabel: "तारीख", time: "वेळ", confirm: "निश्चित करा", back: "मागे", cancel: "रद्द करा", confirmed: "अपॉइंटमेंट निश्चित झाली आहे", unavailable: "ही वेळ आता उपलब्ध नाही. कृपया दुसरी उपलब्ध वेळ निवडा." },
+} as const;
+const t = (language: Language) => tapCopy[language];
 const languageButtons = () => buttonsMessage("Please choose your preferred language.", [
   { id: "tap:language:mr", title: "मराठी" }, { id: "tap:language:hi", title: "हिंदी" }, { id: "tap:language:en", title: "English" },
 ]);
-const menuButtons = (language: Language) => buttonsMessage(language === "Marathi" ? "कृपया सेवा निवडा." : language === "Hindi" ? "कृपया सेवा चुनें।" : "Please choose a service.", [
-  { id: "tap:menu:book", title: "Book Appointment" }, { id: "tap:menu:doctors", title: "Doctors" }, { id: "tap:menu:timings", title: "Timings" },
+const menuButtons = (language: Language) => buttonsMessage(t(language).service, [
+  { id: "tap:menu:book", title: t(language).book }, { id: "tap:menu:doctors", title: t(language).doctors }, { id: "tap:menu:timings", title: t(language).timings },
 ]);
-const dateButtons = () => buttonsMessage("Choose your preferred appointment date.", [
-  { id: "tap:date:today", title: "Today" }, { id: "tap:date:tomorrow", title: "Tomorrow" }, { id: "tap:date:custom", title: "Custom Date" },
+const dateButtons = (language: Language) => buttonsMessage(t(language).date, [
+  { id: "tap:date:today", title: t(language).today }, { id: "tap:date:tomorrow", title: t(language).tomorrow }, { id: "tap:date:custom", title: t(language).custom },
 ]);
 const choiceId = (message: MetaMessage) => message.interactive?.button_reply?.id ?? message.interactive?.list_reply?.id ?? "";
 const flowDate = (message: MetaMessage) => {
@@ -170,21 +169,35 @@ async function getGroqHelp(db: ReturnType<typeof serviceClient>, hospitalId: str
   return askGroqReceptionist({ language, patientMessage, provider, apiKey, model: configuredAi?.model ?? undefined, context: { hospitalName: settings?.hospital_name ?? "Our hospital", openingTime: String(settings?.opening_time ?? "09:00"), closingTime: String(settings?.closing_time ?? "17:00"), departments: settings?.departments ?? [], doctors: (doctors ?? []).map((doctor) => `${doctor.name} (${doctor.department})`), currentIndiaDate: `${nowPart("year")}-${nowPart("month")}-${nowPart("day")}`, currentIndiaTime: `${nowPart("hour")}:${nowPart("minute")} IST` } });
 }
 
-async function departmentPicker(db: ReturnType<typeof serviceClient>, hospitalId: string): Promise<MetaOutbound> {
+async function departmentPicker(db: ReturnType<typeof serviceClient>, hospitalId: string, language: Language): Promise<MetaOutbound> {
   const { data: doctors, error } = await db.from("doctors").select("department").eq("hospital_id", hospitalId).eq("enabled", true).order("department");
   if (error) throw error;
   const departments = [...new Set((doctors ?? []).map((doctor) => String(doctor.department).trim()).filter(Boolean))];
-  if (!departments.length) return plainMessage("No departments have an available doctor right now. Please contact the hospital.");
-  return listMessage("Choose a department.", "Departments", departments.map((department) => ({ id: `tap:department:${encodeURIComponent(department)}`, title: department })));
+  if (!departments.length) return plainMessage(language === "Hindi" ? "अभी किसी विभाग में डॉक्टर उपलब्ध नहीं हैं।" : language === "Marathi" ? "सध्या कोणत्याही विभागात डॉक्टर उपलब्ध नाहीत." : "No departments have an available doctor right now. Please contact the hospital.");
+  return listMessage(t(language).department, t(language).departments, departments.map((department) => ({ id: `tap:department:${encodeURIComponent(department)}`, title: department })));
 }
 
-async function slotsPicker(db: ReturnType<typeof serviceClient>, hospitalId: string, doctor: Doctor, date: string): Promise<TapResult> {
-  const slots = await availableSlots(hospitalId, doctor, date);
-  if (!slots.length) return { log: `No slots available for ${date}.`, outgoing: [plainMessage(`No slots are available on ${date}. Please choose another date.`), dateButtons()] };
+const displayDate = (date: string, language: Language) => new Intl.DateTimeFormat(language === "Hindi" ? "hi-IN" : language === "Marathi" ? "mr-IN" : "en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" }).format(new Date(`${date}T12:00:00Z`));
+
+async function customDatePicker(db: ReturnType<typeof serviceClient>, hospitalId: string, doctor: Doctor, language: Language): Promise<TapResult> {
+  const start = new Date(`${todayInIndia()}T00:00:00Z`); start.setUTCDate(start.getUTCDate() + 2);
+  const dates: string[] = [];
+  for (let offset = 0; offset < 90 && dates.length < 10; offset += 1) {
+    const candidate = new Date(start); candidate.setUTCDate(start.getUTCDate() + offset);
+    const date = candidate.toISOString().slice(0, 10);
+    if ((await availableSlots(hospitalId, doctor, date)).length) dates.push(date);
+  }
+  if (!dates.length) return { log: "No future dates have availability.", outgoing: [plainMessage(t(language).noSlots), dateButtons(language)] };
+  return { log: `Sent ${dates.length} future dates with availability.`, outgoing: [listMessage(t(language).custom, t(language).custom, dates.map((date) => ({ id: `custom_date_${date}`, title: displayDate(date, language) })))] };
+}
+
+async function slotsPicker(db: ReturnType<typeof serviceClient>, hospitalId: string, doctor: Doctor, date: string, language: Language): Promise<TapResult> {
+  const slots = (await availableSlots(hospitalId, doctor, date)).slice(0, 15);
+  if (!slots.length) return { log: `No slots available for ${date}.`, outgoing: [plainMessage(t(language).noSlots), dateButtons(language)] };
   const groups = Array.from({ length: Math.ceil(slots.length / 10) }, (_, index) => slots.slice(index * 10, index * 10 + 10));
   return {
     log: `Sent ${slots.length} live appointment slot${slots.length === 1 ? "" : "s"} for ${date}.`,
-    outgoing: groups.map((group, index) => listMessage(groups.length === 1 ? "Choose an available time slot." : `Choose an available time slot (${index * 10 + 1}-${index * 10 + group.length} of ${slots.length}).`, "Time slots", group.map((slot) => ({ id: `tap:slot:${slot}`, title: displayTime(slot) })))),
+    outgoing: groups.map((group, index) => listMessage(groups.length === 1 ? t(language).slot : `${t(language).slot} (${index * 10 + 1}-${index * 10 + group.length} / ${slots.length})`, t(language).slots, group.map((slot) => ({ id: `slot_${date}_${slot.replace(":", "-")}`, title: displayTime(slot) })))),
   };
 }
 
@@ -210,34 +223,34 @@ async function runTapBooking(input: {
 
   if (draft.stage === "tap_menu") {
     if (tap === "tap:menu:timings") return { log: "Sent hospital timings.", outgoing: [plainMessage(await getHospitalHelp(db, hospitalId, draft.language)), menuButtons(draft.language)] };
-    if (tap === "tap:menu:doctors") return { log: "Sent interactive department list.", outgoing: [await departmentPicker(db, hospitalId)] };
+    if (tap === "tap:menu:doctors") return { log: "Sent interactive department list.", outgoing: [await departmentPicker(db, hospitalId, draft.language)] };
     if (tap !== "tap:menu:book") return { log: "Waiting for menu selection.", outgoing: [menuButtons(draft.language)] };
     const { data: patient, error } = await db.from("patients").select("full_name").eq("hospital_id", hospitalId).eq("phone_number", patientPhone).maybeSingle();
     if (error) throw error;
     if (!patient?.full_name) {
       await db.from("appointment_drafts").update({ stage: "tap_name", updated_at: now }).eq("conversation_id", conversationId);
-      return { log: "Requested patient name.", outgoing: [plainMessage("Please type the patient's full name to continue.")] };
+      return { log: "Requested patient name.", outgoing: [plainMessage(t(draft.language).name)] };
     }
     await db.from("appointment_drafts").update({ patient_name: patient.full_name, stage: "tap_department", updated_at: now }).eq("conversation_id", conversationId);
-    return { log: "Sent interactive department list.", outgoing: [await departmentPicker(db, hospitalId)] };
+    return { log: "Sent interactive department list.", outgoing: [await departmentPicker(db, hospitalId, draft.language)] };
   }
 
   if (draft.stage === "tap_name") {
-    if (message.type !== "text" || !validName(text)) return { log: "Waiting for a valid patient name.", outgoing: [plainMessage("Please type a valid full name, for example: Riya Patil.")] };
+    if (message.type !== "text" || !validName(text)) return { log: "Waiting for a valid patient name.", outgoing: [plainMessage(t(draft.language).invalidName)] };
     const { error } = await db.from("patients").upsert({ hospital_id: hospitalId, phone_number: patientPhone, full_name: clean(text), last_seen: now }, { onConflict: "hospital_id,phone_number" });
     if (error) throw error;
     await db.from("appointment_drafts").update({ patient_name: clean(text), stage: "tap_department", updated_at: now }).eq("conversation_id", conversationId);
-    return { log: "Patient name saved; sent department list.", outgoing: [await departmentPicker(db, hospitalId)] };
+    return { log: "Patient name saved; sent department list.", outgoing: [await departmentPicker(db, hospitalId, draft.language)] };
   }
 
   if (draft.stage === "tap_department") {
-    if (!tap.startsWith("tap:department:")) return { log: "Waiting for department selection.", outgoing: [await departmentPicker(db, hospitalId)] };
+    if (!tap.startsWith("tap:department:")) return { log: "Waiting for department selection.", outgoing: [await departmentPicker(db, hospitalId, draft.language)] };
     const department = decodeURIComponent(tap.slice("tap:department:".length));
     const { data: doctors, error } = await db.from("doctors").select("id,name,department").eq("hospital_id", hospitalId).eq("department", department).eq("enabled", true).order("name");
     if (error) throw error;
-    if (!doctors?.length) return { log: "Selected department has no available doctors.", outgoing: [plainMessage("No doctors are currently available in that department."), await departmentPicker(db, hospitalId)] };
+    if (!doctors?.length) return { log: "Selected department has no available doctors.", outgoing: [plainMessage(t(draft.language).noDoctor), await departmentPicker(db, hospitalId, draft.language)] };
     await db.from("appointment_drafts").update({ doctor_or_department: department, stage: "tap_doctor", updated_at: now }).eq("conversation_id", conversationId);
-    return { log: `Sent ${doctors.length} available doctor choices.`, outgoing: [listMessage("Choose a doctor.", "Doctors", doctors.map((doctor) => ({ id: `tap:doctor:${doctor.id}`, title: doctor.name, description: doctor.department })))] };
+    return { log: `Sent ${doctors.length} available doctor choices.`, outgoing: [listMessage(t(draft.language).doctor, t(draft.language).doctors, doctors.map((doctor) => ({ id: `tap:doctor:${doctor.id}`, title: doctor.name, description: doctor.department })))] };
   }
 
   if (draft.stage === "tap_doctor") {
@@ -245,40 +258,55 @@ async function runTapBooking(input: {
     const doctorId = tap.slice("tap:doctor:".length);
     const { data: doctor, error } = await db.from("doctors").select("id").eq("hospital_id", hospitalId).eq("id", doctorId).eq("enabled", true).maybeSingle();
     if (error) throw error;
-    if (!doctor) return { log: "Unavailable doctor selection.", outgoing: [plainMessage("That doctor is no longer available. Please choose another department."), await departmentPicker(db, hospitalId)] };
+    if (!doctor) return { log: "Unavailable doctor selection.", outgoing: [plainMessage(t(draft.language).noDoctor), await departmentPicker(db, hospitalId, draft.language)] };
     await db.from("appointment_drafts").update({ doctor_or_department: doctor.id, stage: "tap_date", updated_at: now }).eq("conversation_id", conversationId);
-    return { log: "Sent date reply buttons.", outgoing: [dateButtons()] };
+    return { log: "Sent date reply buttons.", outgoing: [dateButtons(draft.language)] };
   }
 
   if (draft.stage === "tap_date") {
     if (tap === "tap:date:custom") {
-      const flowId = process.env.META_APPOINTMENT_DATE_FLOW_ID;
-      return flowId ? { log: "Opened official WhatsApp custom-date Flow.", outgoing: [flowMessage(flowId)] } : { log: "Custom-date Flow is not configured.", outgoing: [plainMessage("Custom date selection is not available yet. Please choose Today or Tomorrow."), dateButtons()] };
+      const { data: doctor, error } = await db.from("doctors").select("id,name,department,working_days,start_time,end_time,consultation_duration").eq("hospital_id", hospitalId).eq("id", draft.doctor_or_department ?? "").eq("enabled", true).maybeSingle();
+      if (error) throw error;
+      if (!doctor) return { log: "Doctor unavailable before custom-date selection.", outgoing: [plainMessage(t(draft.language).noDoctor), menuButtons(draft.language)] };
+      await db.from("appointment_drafts").update({ stage: "tap_custom_date", updated_at: now }).eq("conversation_id", conversationId);
+      return customDatePicker(db, hospitalId, doctor as Doctor, draft.language);
     }
     const tomorrow = new Date(`${todayInIndia()}T00:00:00Z`); tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
     const date = selectedFlowDate ?? (tap === "tap:date:today" ? todayInIndia() : tap === "tap:date:tomorrow" ? tomorrow.toISOString().slice(0, 10) : null);
-    if (!date || !validDate(date)) return { log: "Waiting for date selection.", outgoing: [dateButtons()] };
+    if (!date || !validDate(date)) return { log: "Waiting for date selection.", outgoing: [dateButtons(draft.language)] };
     const { data: doctor, error } = await db.from("doctors").select("id,name,department,working_days,start_time,end_time,consultation_duration").eq("hospital_id", hospitalId).eq("id", draft.doctor_or_department ?? "").eq("enabled", true).maybeSingle();
     if (error) throw error;
     if (!doctor) return { log: "Doctor unavailable before date selection.", outgoing: [plainMessage("That doctor is no longer available. Please start again."), menuButtons(draft.language)] };
     await db.from("appointment_drafts").update({ preferred_date: date, stage: "tap_slot", updated_at: now }).eq("conversation_id", conversationId);
-    return slotsPicker(db, hospitalId, doctor as Doctor, date);
+    return slotsPicker(db, hospitalId, doctor as Doctor, date, draft.language);
+  }
+
+  if (draft.stage === "tap_custom_date") {
+    const date = tap.startsWith("custom_date_") ? tap.slice("custom_date_".length) : null;
+    if (!date || !validDate(date)) return { log: "Waiting for custom-date selection.", outgoing: [plainMessage(t(draft.language).custom)] };
+    const { data: doctor, error } = await db.from("doctors").select("id,name,department,working_days,start_time,end_time,consultation_duration").eq("hospital_id", hospitalId).eq("id", draft.doctor_or_department ?? "").eq("enabled", true).maybeSingle();
+    if (error) throw error;
+    if (!doctor) return { log: "Doctor unavailable before custom-date selection.", outgoing: [plainMessage(t(draft.language).noDoctor), menuButtons(draft.language)] };
+    await db.from("appointment_drafts").update({ preferred_date: date, stage: "tap_slot", updated_at: now }).eq("conversation_id", conversationId);
+    return slotsPicker(db, hospitalId, doctor as Doctor, date, draft.language);
   }
 
   if (draft.stage === "tap_slot") {
-    const slot = tap.startsWith("tap:slot:") ? tap.slice("tap:slot:".length) : null;
-    if (!slot || !draft.preferred_date) return { log: "Waiting for slot selection.", outgoing: [plainMessage("Please select an available time slot from the list.")] };
+    const slotPrefix = draft.preferred_date ? `slot_${draft.preferred_date}_` : "";
+    const slotValue = slotPrefix && tap.startsWith(slotPrefix) ? tap.slice(slotPrefix.length) : "";
+    const slot = /^\d{2}-\d{2}$/.test(slotValue) ? slotValue.replace("-", ":") : null;
+    if (!slot || !draft.preferred_date) return { log: "Waiting for slot selection.", outgoing: [plainMessage(t(draft.language).slot)] };
     const { data: doctor, error } = await db.from("doctors").select("name,department").eq("hospital_id", hospitalId).eq("id", draft.doctor_or_department ?? "").maybeSingle();
     if (error) throw error;
     await db.from("appointment_drafts").update({ offered_slots: [slot], stage: "tap_confirm", updated_at: now }).eq("conversation_id", conversationId);
-    const summary = `Appointment summary\nPatient: ${draft.patient_name ?? "Patient"}\nDoctor: ${doctor?.name ?? "Doctor"}\nDepartment: ${doctor?.department ?? ""}\nDate: ${draft.preferred_date}\nTime: ${displayTime(slot)}`;
-    return { log: "Sent appointment confirmation buttons.", outgoing: [buttonsMessage(summary, [{ id: "tap:confirm", title: "Confirm Appointment" }, { id: "tap:back", title: "Back" }, { id: "tap:cancel", title: "Cancel" }])] };
+    const summary = `${t(draft.language).summary}\n${t(draft.language).patient}: ${draft.patient_name ?? t(draft.language).patient}\n${t(draft.language).doctors}: ${doctor?.name ?? "-"}\n${t(draft.language).departmentLabel}: ${doctor?.department ?? ""}\n${t(draft.language).dateLabel}: ${displayDate(draft.preferred_date, draft.language)}\n${t(draft.language).time}: ${displayTime(slot)}`;
+    return { log: "Sent appointment confirmation buttons.", outgoing: [buttonsMessage(summary, [{ id: "tap:confirm", title: t(draft.language).confirm }, { id: "tap:back", title: t(draft.language).back }, { id: "tap:cancel", title: t(draft.language).cancel }])] };
   }
 
   if (draft.stage === "tap_confirm") {
-    if (tap === "tap:cancel") { await db.from("appointment_drafts").delete().eq("conversation_id", conversationId); return { log: "Appointment booking cancelled.", outgoing: [plainMessage("Appointment booking cancelled."), menuButtons(draft.language)] }; }
-    if (tap === "tap:back") { await db.from("appointment_drafts").update({ stage: "tap_date", offered_slots: null, updated_at: now }).eq("conversation_id", conversationId); return { log: "Returned to date selection.", outgoing: [dateButtons()] }; }
-    if (tap !== "tap:confirm") return { log: "Waiting for confirmation button.", outgoing: [plainMessage("Please tap Confirm Appointment, Back, or Cancel.")] };
+    if (tap === "tap:cancel") { await db.from("appointment_drafts").delete().eq("conversation_id", conversationId); return { log: "Appointment booking cancelled.", outgoing: [plainMessage(draft.language === "Hindi" ? "अपॉइंटमेंट बुकिंग रद्द कर दी गई है।" : draft.language === "Marathi" ? "अपॉइंटमेंट बुकिंग रद्द केली आहे." : "Appointment booking cancelled."), menuButtons(draft.language)] }; }
+    if (tap === "tap:back") { await db.from("appointment_drafts").update({ stage: "tap_date", offered_slots: null, updated_at: now }).eq("conversation_id", conversationId); return { log: "Returned to date selection.", outgoing: [dateButtons(draft.language)] }; }
+    if (tap !== "tap:confirm") return { log: "Waiting for confirmation button.", outgoing: [plainMessage(`${t(draft.language).confirm}, ${t(draft.language).back}, ${t(draft.language).cancel}`)] };
     const slot = draft.offered_slots?.[0];
     const [{ data: doctor, error: doctorError }, { data: patient, error: patientError }] = await Promise.all([
       db.from("doctors").select("id,name,department,working_days,start_time,end_time,consultation_duration").eq("hospital_id", hospitalId).eq("id", draft.doctor_or_department ?? "").eq("enabled", true).maybeSingle(),
@@ -287,16 +315,16 @@ async function runTapBooking(input: {
     if (doctorError || patientError) throw doctorError ?? patientError;
     if (!slot || !doctor || !patient || !draft.preferred_date || !(await availableSlots(hospitalId, doctor as Doctor, draft.preferred_date)).includes(slot)) {
       await db.from("appointment_drafts").update({ stage: "tap_date", offered_slots: null, updated_at: now }).eq("conversation_id", conversationId);
-      return { log: "Selected slot became unavailable; refreshed slots.", outgoing: [plainMessage("That slot is no longer available. Please choose another date."), dateButtons()] };
+      return { log: "Selected slot became unavailable; refreshed slots.", outgoing: [plainMessage(t(draft.language).unavailable), dateButtons(draft.language)] };
     }
     const { error } = await db.from("appointments").insert({ hospital_id: hospitalId, patient_id: patient.id, conversation_id: conversationId, doctor_id: doctor.id, patient_name: draft.patient_name ?? patient.full_name, phone_number: patientPhone, doctor_name: doctor.name, department: doctor.department, appointment_date: draft.preferred_date, appointment_time: slot, reason: draft.reason, status: "upcoming" });
     if (error?.code === "23505") {
       await db.from("appointment_drafts").update({ stage: "tap_date", offered_slots: null, updated_at: now }).eq("conversation_id", conversationId);
-      return { log: "Slot conflicted during insert; returned to date selection.", outgoing: [plainMessage("That slot was just booked. Please choose another date."), dateButtons()] };
+      return { log: "Slot conflicted during insert; returned to date selection.", outgoing: [plainMessage(t(draft.language).unavailable), dateButtons(draft.language)] };
     }
     if (error) throw error;
     await db.from("appointment_drafts").delete().eq("conversation_id", conversationId);
-    return { log: "Appointment confirmed and saved to dashboard.", outgoing: [plainMessage(`Appointment confirmed with ${doctor.name} (${doctor.department}) on ${draft.preferred_date} at ${displayTime(slot)}.`)] };
+    return { log: "Appointment confirmed and saved to dashboard.", outgoing: [plainMessage(`${t(draft.language).confirmed}: ${doctor.name} (${doctor.department}), ${displayDate(draft.preferred_date, draft.language)} ${displayTime(slot)}.`)] };
   }
   return null;
 }
