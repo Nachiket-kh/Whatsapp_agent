@@ -3,13 +3,13 @@ import styles from "./creatoros.module.css";
 import pricing from "./pricing.module.css";
 
 const setupPlans = [
-  { name: "WhatsApp Appointment Automation", price: "₹18,000", text: "One-time setup charge for a complete WhatsApp appointment-booking system.", items: ["WhatsApp Cloud API connection", "English-first AI receptionist with Hindi & Marathi switching", "Live doctor, department and slot booking", "Hospital dashboard, staff handover and launch support"], cta: "Get WhatsApp Automation" },
-  { name: "WhatsApp + AI Voice Agent Automation", price: "₹35,000", text: "One-time setup charge for a unified WhatsApp and voice appointment system.", items: ["Everything in WhatsApp Automation", "AI voice receptionist integration", "Shared doctors, patient records and appointment calendar", "Call flow, testing, go-live and team training"], cta: "Get Complete Automation", featured: true },
+  { name: "WhatsApp Appointment Automation", price: "₹10,000", text: "One-time setup charge for a complete WhatsApp appointment-booking system.", items: ["WhatsApp Cloud API connection", "English-first AI receptionist with Hindi & Marathi switching", "Live doctor, department and slot booking", "Hospital dashboard, staff handover and launch support"], cta: "Get WhatsApp Automation" },
+  { name: "WhatsApp + AI Voice Agent Automation", price: "₹20,000", text: "One-time setup charge for a unified WhatsApp and voice appointment system.", items: ["Everything in WhatsApp Automation", "AI voice receptionist integration", "Shared doctors, patient records and appointment calendar", "Call flow, testing, go-live and team training"], cta: "Get Complete Automation", featured: true },
 ];
 const maintenancePlans = [
-  { name: "WhatsApp Care", price: "₹7,000 / month", text: "Maintenance and support for WhatsApp appointment automation.", items: ["Up to 150 patient conversations / month", "Monitoring, updates and support", "Dashboard and appointment workflow maintenance"] },
-  { name: "Connected Reception", price: "₹9,000 / month", text: "Maintenance for WhatsApp + AI voice automation.", items: ["Up to 300 conversations / month", "Voice-agent workflow monitoring", "Priority support and monthly optimisation"], featured: true },
-  { name: "Hospital Scale", price: "₹12,000 / month", text: "For busy hospitals that need a reliable automation partner.", items: ["Higher conversation/voice usage band", "Custom business-process automations", "Priority response, reporting and optimisation"] },
+  { name: "WhatsApp Care", price: "₹5,000 / month", text: "Maintenance and support for WhatsApp appointment automation.", items: ["Up to 150 patient conversations / month", "Monitoring, updates and support", "Dashboard and appointment workflow maintenance"] },
+  { name: "Connected Reception", price: "₹7,000 / month", text: "Maintenance for WhatsApp + AI voice automation.", items: ["Up to 300 conversations / month", "Voice-agent workflow monitoring", "Priority support and monthly optimisation"], featured: true },
+  { name: "Hospital Scale", price: "₹10,000 / month", text: "For busy hospitals that need a reliable automation partner.", items: ["Higher conversation/voice usage band", "Custom business-process automations", "Priority response, reporting and optimisation"] },
 ];
 const demoWhatsApp = "https://wa.me/917378857650?text=Hello%20CreatorOS%2C%20I%20want%20to%20try%20the%20hospital%20appointment%20automation.";
 
