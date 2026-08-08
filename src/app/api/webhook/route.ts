@@ -46,6 +46,19 @@ const messages = {
 const clean = (value: string) => value.trim();
 const validName = (value: string) => /^[\p{L}][\p{L}\s.'-]{1,59}$/u.test(clean(value));
 const languageFor = (value: string): Language | null => ({ "1": "Marathi", marathi: "Marathi", "मराठी": "Marathi", mr: "Marathi", "2": "Hindi", hindi: "Hindi", "हिंदी": "Hindi", hi: "Hindi", "3": "English", english: "English", en: "English" }[clean(value).toLowerCase()] as Language | undefined) ?? null;
+// Keep the conversation in the patient's chosen language. When they naturally
+// switch scripts mid-chat, recognise common Hindi/Marathi phrases too.
+const languageFromMessage = (value: string): Language | null => {
+  const explicit = languageFor(value);
+  if (explicit && !/^[123]$/.test(clean(value))) return explicit;
+  if (!/[\u0900-\u097f]/u.test(value)) return null;
+  if (/(आहे|आहेत|मला|माझे|तुमचे|उद्या|कृपया|सांगा|वेळा)/u.test(value)) return "Marathi";
+  if (/(है|हैं|मुझे|मेरा|आपका|कल|कृपया|बताएं|समय)/u.test(value)) return "Hindi";
+  return null;
+};
+const isToday = (value: string) => /^(1|today|aaj|आज|आजचा|आजची)$/iu.test(clean(value));
+const isTomorrow = (value: string) => /^(2|tomorrow|kal|कल|उद्या)$/iu.test(clean(value));
+const isConfirmation = (value: string) => /^(yes|y|1|ho|haan|ha|हाँ|हां|हो|होय)$/iu.test(clean(value));
 const displayTime = (value: string) => {
   const [hour, minute] = value.slice(0, 5).split(":").map(Number);
   return `${((hour + 11) % 12) + 1}:${String(minute).padStart(2, "0")} ${hour >= 12 ? "PM" : "AM"}`;
@@ -149,9 +162,17 @@ export async function POST(request: NextRequest) {
     if (inboundError) throw inboundError;
     const { data: draftRow, error: draftError } = await db.from("appointment_drafts").select("*").eq("conversation_id", conversation.id).maybeSingle();
     if (draftError) throw draftError;
-    const draft = draftRow as Draft | null;
+    let draft = draftRow as Draft | null;
     let reply = "";
     const reset = /^(restart|start over|new appointment|book again|cancel|stop|navin|punha|नवीन|पुन्हा)$/i.test(text);
+
+    if (draft && draft.stage !== "language") {
+      const detectedLanguage = languageFromMessage(text);
+      if (detectedLanguage && detectedLanguage !== draft.language) {
+        await db.from("appointment_drafts").update({ language: detectedLanguage, updated_at: now }).eq("conversation_id", conversation.id);
+        draft = { ...draft, language: detectedLanguage };
+      }
+    }
 
     if (reset) {
       await db.from("appointment_drafts").upsert({ conversation_id: conversation.id, language: "Marathi", stage: "language", patient_name: null, doctor_or_department: null, preferred_date: null, reason: null, offered_slots: null, updated_at: now });
@@ -201,7 +222,7 @@ export async function POST(request: NextRequest) {
       else { await db.from("appointment_drafts").update({ doctor_or_department: doctor.id, stage: "date", updated_at: now }).eq("conversation_id", conversation.id); reply = messages[draft.language].date; }
     } else if (draft.stage === "date") {
       const tomorrow = new Date(`${todayInIndia()}T00:00:00Z`); tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-      const date = text === "1" ? todayInIndia() : text === "2" ? tomorrow.toISOString().slice(0, 10) : validDate(text) ? text : null;
+      const date = isToday(text) ? todayInIndia() : isTomorrow(text) ? tomorrow.toISOString().slice(0, 10) : validDate(text) ? text : null;
       if (!date) reply = `${messages[draft.language].date}\nPlease enter a valid future date.`;
       else {
         const { data: doctor, error } = await db.from("doctors").select("id,name,department,working_days,start_time,end_time,consultation_duration").eq("hospital_id", hospitalId).eq("id", draft.doctor_or_department ?? "").eq("enabled", true).maybeSingle();
@@ -220,7 +241,7 @@ export async function POST(request: NextRequest) {
         reply = `${draft.patient_name}\n${doctor?.name ?? "Doctor"} - ${doctor?.department ?? ""}\n${draft.preferred_date} at ${displayTime(slot)}\n${draft.reason ?? ""}\n\n${messages[draft.language].confirm}`;
       }
     } else if (draft.stage === "confirm") {
-      if (!/^(yes|y|1|ho|haan|ha|हो)$/i.test(text)) {
+      if (!isConfirmation(text)) {
         await db.from("appointment_drafts").update({ stage: "date", offered_slots: null, updated_at: now }).eq("conversation_id", conversation.id);
         reply = messages[draft.language].date;
       } else {

@@ -35,3 +35,12 @@
   .responsive :global(.table-wrap) { max-width:calc(100vw - 28px); }
   .modal { padding:22px 18px; }.modal dl { grid-template-columns:1fr; gap:8px; }
 }
+
+/* The global legacy stylesheet hid all navigation labels below 600px. Keep
+   every section readable and horizontally scrollable on phones. */
+@media (max-width: 600px) {
+  .responsive :global(.hospital) { grid-template-columns:1fr !important; }
+  .responsive :global(.main-nav) { display:flex !important; }
+  .responsive :global(.main-nav button) { font-size:.78rem !important; }
+  .responsive :global(.main-nav button::first-letter) { font-size:inherit !important; }
+}
