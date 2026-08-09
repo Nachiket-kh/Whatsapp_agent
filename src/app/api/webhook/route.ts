@@ -128,6 +128,26 @@ const dateButtons = (language: Language) => buttonsMessage(t(language).date, [
   { id: "tap:date:today", title: t(language).today }, { id: "tap:date:tomorrow", title: t(language).tomorrow }, { id: "tap:date:custom", title: t(language).custom },
 ]);
 const choiceId = (message: MetaMessage) => message.interactive?.button_reply?.id ?? message.interactive?.list_reply?.id ?? "";
+async function handleReminderReply(db: ReturnType<typeof serviceClient>, hospitalId: string, patientPhone: string, choice: string) {
+  const match = /^reminder:([0-9a-f-]{36}):(yes|no)$/.exec(choice);
+  if (!match) return null;
+  const [, appointmentId, answer] = match;
+  const { data: appointment, error } = await db.from("appointments")
+    .select("id,patient_name,appointment_date,appointment_time,status")
+    .eq("id", appointmentId)
+    .eq("hospital_id", hospitalId)
+    .eq("phone_number", patientPhone)
+    .maybeSingle();
+  if (error) throw error;
+  if (!appointment) return "We could not find that appointment. Please contact the hospital reception.";
+  if (appointment.status !== "upcoming") return `This appointment is already ${appointment.status}.`;
+  if (answer === "no") {
+    const { error: cancelError } = await db.from("appointments").update({ status: "cancelled" }).eq("id", appointment.id).eq("status", "upcoming");
+    if (cancelError) throw cancelError;
+    return "Your appointment has been cancelled. You can message us anytime to book another appointment.";
+  }
+  return "Thank you for confirming. We will see you at the hospital.";
+}
 const flowDate = (message: MetaMessage) => {
   const raw = message.interactive?.nfm_reply?.response_json;
   if (!raw) return null;
@@ -434,7 +454,8 @@ export async function POST(request: NextRequest) {
     let interactiveReplies: MetaOutbound[] | null = null;
     const reset = /^(restart|start over|new appointment|book again|cancel|stop|navin|punha|नवीन|पुन्हा)$/i.test(text);
 
-    const tapResult = await runTapBooking({ db, hospitalId, conversationId: conversation.id, patientPhone, draft, message: incoming, text, now });
+    const reminderReply = await handleReminderReply(db, hospitalId, patientPhone, choiceId(incoming));
+    const tapResult = reminderReply ? null : await runTapBooking({ db, hospitalId, conversationId: conversation.id, patientPhone, draft, message: incoming, text, now });
 
     if (!tapResult && draft && draft.stage !== "language") {
       const detectedLanguage = languageFromMessage(text);
@@ -444,7 +465,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (tapResult) {
+    if (reminderReply) {
+      reply = reminderReply;
+      interactiveReplies = [plainMessage(reply)];
+    } else if (tapResult) {
       reply = tapResult.log;
       interactiveReplies = tapResult.outgoing;
     } else if (reset) {
