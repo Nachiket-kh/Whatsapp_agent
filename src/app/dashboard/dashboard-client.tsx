@@ -51,7 +51,7 @@ export default function DashboardClient({ hospitalId, initialConversations, init
     return () => window.clearInterval(timer);
   }, [router]);
 
-  async function signOut() { await createClient().auth.signOut(); router.replace("/login"); router.refresh(); }
+  async function signOut() { await fetch("/api/session/logout", { method: "POST" }); router.replace("/login"); router.refresh(); }
   async function appointmentAction(id: string, status?: "upcoming" | "completed" | "cancelled", remove = false, conversationId?: string | null) {
     const confirmation = remove ? "Delete this appointment permanently?" : status === "cancelled" ? "Cancel this appointment?" : "";
     if (confirmation && !confirm(confirmation)) return;
@@ -83,7 +83,7 @@ export default function DashboardClient({ hospitalId, initialConversations, init
     setSelected("");
     router.refresh();
   }
-  async function addDoctor() { const name = prompt("Doctor name"); const department = prompt("Department"); if (!name || !department) return; const { error } = await createClient().from("doctors").insert({ hospital_id: hospitalId, name, department }); if (error) alert(error.message); else router.refresh(); }
+  async function addDoctor() { const name = prompt("Doctor name"); const department = prompt("Department"); if (!name || !department) return; const response = await fetch("/api/doctors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, department }) }); const body = await response.json() as { error?: string; doctor?: Doctor }; if (!response.ok) alert(body.error ?? "Unable to add doctor."); else if (body.doctor) { setDoctors((items) => [...items, body.doctor!]); router.refresh(); } }
   async function toggleDoctor(doctor: Doctor) { const response = await fetch(`/api/doctors/${doctor.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: !doctor.enabled }) }); const body = await response.json() as { error?: string; doctor?: Doctor }; if (!response.ok || !body.doctor) { alert(body.error ?? "Unable to update doctor availability."); return; } setDoctors((items) => items.map((item) => item.id === doctor.id ? body.doctor! : item)); router.refresh(); }
   async function deleteDoctor(doctor: Doctor) { if (!confirm(`Delete ${doctor.name}? Existing appointment history will be retained, but this doctor will no longer be available for new bookings.`)) return; const response = await fetch(`/api/doctors/${doctor.id}`, { method: "DELETE" }); const body = await response.json() as { error?: string }; if (!response.ok) { alert(body.error ?? "Unable to delete doctor."); return; } setDoctors((items) => items.filter((item) => item.id !== doctor.id)); router.refresh(); }
   async function saveSettings() {

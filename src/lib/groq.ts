@@ -27,8 +27,8 @@ Hospital facts: ${JSON.stringify(context)}`;
     const response = await fetch(provider === "openai" ? "https://api.openai.com/v1/chat/completions" : "https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: input.model || (provider === "openai" ? "gpt-4o-mini" : "llama-3.3-70b-versatile"), temperature: 0.2, max_tokens: 220, messages: [{ role: "system", content: system }, { role: "user", content: input.patientMessage }] }),
-      signal: AbortSignal.timeout(8000),
+      body: JSON.stringify({ model: input.model || (provider === "openai" ? "gpt-4o-mini" : "llama-3.1-8b-instant"), temperature: 0.2, max_tokens: 140, messages: [{ role: "system", content: system }, { role: "user", content: input.patientMessage }] }),
+      signal: AbortSignal.timeout(5000),
     });
     if (!response.ok) { console.error("AI receptionist request failed", { provider, status: response.status }); return null; }
     const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };

@@ -1,15 +1,13 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import DashboardClient from "./dashboard-client";
 import type { Appointment, Conversation, Doctor, HospitalSettings, Message, Patient } from "@/lib/database.types";
-import { ensureHospital, serviceClient } from "@/lib/hospital";
+import { serviceClient } from "@/lib/hospital";
+import { hasDashboardSession, requireDashboardHospital } from "@/lib/app-auth";
 import { cleanupExpiredChats } from "@/lib/chat-retention";
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-  const hospitalId = await ensureHospital(user.id);
+  if (!await hasDashboardSession()) redirect("/login");
+  const hospitalId = await requireDashboardHospital();
   // Ensure the configured chat/contact retention window is applied whenever
   // an administrator opens the dashboard.
   try { await cleanupExpiredChats(hospitalId); } catch (error) { console.error("Dashboard chat retention cleanup failed", error); }

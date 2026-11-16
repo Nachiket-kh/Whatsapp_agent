@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { decrypt, encrypt } from "@/lib/crypto";
 import { evolutionRequest, readEvolutionState } from "@/lib/evolution";
-import { ensureHospital, serviceClient } from "@/lib/hospital";
-import { createClient } from "@/lib/supabase/server";
+import { serviceClient } from "@/lib/hospital";
+import { requireDashboardHospital } from "@/lib/app-auth";
 
 export const runtime = "nodejs";
 
 async function currentHospital() {
-  const auth = await createClient(); const { data: { user } } = await auth.auth.getUser();
-  if (!user) throw new Error("Unauthorized");
-  return ensureHospital(user.id);
+  return requireDashboardHospital();
 }
 
 export async function GET() {

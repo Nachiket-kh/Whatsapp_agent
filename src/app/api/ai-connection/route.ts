@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { encrypt } from "@/lib/crypto";
-import { ensureHospital, serviceClient } from "@/lib/hospital";
-import { createClient } from "@/lib/supabase/server";
+import { serviceClient } from "@/lib/hospital";
+import { requireDashboardHospital } from "@/lib/app-auth";
 
-async function hospital() { const auth = await createClient(); const { data: { user } } = await auth.auth.getUser(); if (!user) throw new Error("Unauthorized"); return ensureHospital(user.id); }
+async function hospital() { return requireDashboardHospital(); }
 
 export async function GET() {
   try { const hospitalId = await hospital(); const { data, error } = await serviceClient().from("ai_connections").select("provider,model,enabled,updated_at").eq("hospital_id", hospitalId).maybeSingle(); if (error) throw error; return NextResponse.json({ connection: data }); }

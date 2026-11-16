@@ -1,18 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ensureHospital } from "@/lib/hospital";
+import { hasDashboardSession, requireDashboardHospital } from "@/lib/app-auth";
 import { createMetaOAuthState, metaRedirectUri } from "@/lib/meta-oauth";
-import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
-  const auth = await createClient();
-  const { data: { user } } = await auth.auth.getUser();
-  if (!user) return NextResponse.redirect(new URL("/login", request.url));
+  if (!await hasDashboardSession()) return NextResponse.redirect(new URL("/login", request.url));
   if (!process.env.META_APP_ID || !process.env.META_APP_SECRET || !process.env.META_WEBHOOK_VERIFY_TOKEN) {
     return NextResponse.redirect(new URL("/whatsapp?meta=missing-config", request.url));
   }
-  const state = createMetaOAuthState(await ensureHospital(user.id));
+  const state = createMetaOAuthState(await requireDashboardHospital());
   const query = new URLSearchParams({
     client_id: process.env.META_APP_ID,
     redirect_uri: metaRedirectUri(request.nextUrl.origin),

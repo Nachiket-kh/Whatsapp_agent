@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ensureHospital, serviceClient } from "@/lib/hospital";
-import { createClient } from "@/lib/supabase/server";
+import { serviceClient } from "@/lib/hospital";
+import { requireDashboardHospital } from "@/lib/app-auth";
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = await createClient();
-    const { data: { user } } = await auth.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const hospitalId = await ensureHospital(user.id);
+    const hospitalId = await requireDashboardHospital();
     const body = await request.json() as Record<string, unknown>;
     const hospital_name = String(body.hospital_name ?? "").trim();
     if (hospital_name.length < 2 || hospital_name.length > 100) return NextResponse.json({ error: "Enter a valid hospital name." }, { status: 400 });

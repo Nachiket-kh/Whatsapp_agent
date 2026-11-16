@@ -419,6 +419,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   console.log("Meta WhatsApp webhook POST received");
+  const startedAt = Date.now();
   let db: ReturnType<typeof serviceClient> | null = null;
   let eventId: string | null = null;
   try {
@@ -435,7 +436,7 @@ export async function POST(request: NextRequest) {
     if (connectionError) throw connectionError;
     if (!connection) throw new Error("No hospital is connected to this WhatsApp Phone Number ID.");
     const hospitalId = connection.hospital_id as string;
-    await cleanupExpiredChatsWhenDue(hospitalId);
+    void cleanupExpiredChatsWhenDue(hospitalId).catch((error) => console.error("Background chat cleanup failed", error));
     const now = new Date().toISOString();
     const { data: conversation, error: conversationError } = await db.from("conversations")
       .upsert({ hospital_id: hospitalId, phone_number: patientPhone, updated_at: now }, { onConflict: "hospital_id,phone_number" }).select("id").single();
@@ -445,9 +446,11 @@ export async function POST(request: NextRequest) {
     eventId = event.eventId;
     if (event.duplicate) return NextResponse.json({ ok: true, duplicate: true });
 
-    const { error: inboundError } = await db.from("messages").insert({ conversation_id: conversation.id, role: "user", content: text });
+    const [{ error: inboundError }, { data: draftRow, error: draftError }] = await Promise.all([
+      db.from("messages").insert({ conversation_id: conversation.id, role: "user", content: text }),
+      db.from("appointment_drafts").select("*").eq("conversation_id", conversation.id).maybeSingle(),
+    ]);
     if (inboundError) throw inboundError;
-    const { data: draftRow, error: draftError } = await db.from("appointment_drafts").select("*").eq("conversation_id", conversation.id).maybeSingle();
     if (draftError) throw draftError;
     let draft = draftRow as Draft | null;
     let reply = "";
@@ -564,11 +567,17 @@ export async function POST(request: NextRequest) {
       reply = languageMenu;
     }
 
-    const { error: replyError } = await db.from("messages").insert({ conversation_id: conversation.id, role: "assistant", content: reply });
+    const outgoing = interactiveReplies ?? [plainMessage(reply)];
+    const [{ error: replyError }] = await Promise.all([
+      db.from("messages").insert({ conversation_id: conversation.id, role: "assistant", content: reply }),
+      Promise.all(outgoing.map((message) => sendMetaMessage(connection.phone_number_id, connection.access_token_encrypted, patientPhone, message))),
+    ]);
     if (replyError) throw replyError;
-    for (const message of interactiveReplies ?? [plainMessage(reply)]) await sendMetaMessage(connection.phone_number_id, connection.access_token_encrypted, patientPhone, message);
-    await db.from("meta_connections").update({ status: "connected", last_error: null, updated_at: now }).eq("id", connection.id);
-    if (eventId) await db.from("whatsapp_webhook_events").update({ status: "completed", completed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", eventId);
+    await Promise.all([
+      db.from("meta_connections").update({ status: "connected", last_error: null, updated_at: now }).eq("id", connection.id),
+      eventId ? db.from("whatsapp_webhook_events").update({ status: "completed", completed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", eventId) : Promise.resolve(),
+    ]);
+    console.log("WhatsApp reply delivered", { durationMs: Date.now() - startedAt, outgoingMessages: outgoing.length, usedInteractiveFlow: Boolean(interactiveReplies) });
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("Direct Meta WhatsApp webhook processing failed", error);

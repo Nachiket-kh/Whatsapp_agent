@@ -1,9 +1,8 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { hasDashboardSession } from "@/lib/app-auth";
 import EvolutionConnection from "./evolution-connection";
 
 export default async function EvolutionPage() {
-  const supabase = await createClient(); const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  if (!await hasDashboardSession()) redirect("/login");
   return <EvolutionConnection />;
 }

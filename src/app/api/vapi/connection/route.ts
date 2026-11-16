@@ -1,10 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { encrypt, secretHash } from "@/lib/crypto";
-import { ensureHospital, serviceClient } from "@/lib/hospital";
-import { createClient } from "@/lib/supabase/server";
+import { serviceClient } from "@/lib/hospital";
+import { requireDashboardHospital } from "@/lib/app-auth";
 export const runtime = "nodejs";
-async function hospital() { const auth = await createClient(); const { data:{ user } } = await auth.auth.getUser(); if (!user) throw new Error("Unauthorized"); return ensureHospital(user.id); }
+async function hospital() { return requireDashboardHospital(); }
 type VapiAssistant = { model?: Record<string, unknown>; [key: string]: unknown };
 const appointmentFunctions = [
   ["listDoctors", "Get the currently enabled doctors and departments before offering choices.", {}],
