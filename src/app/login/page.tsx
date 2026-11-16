@@ -1,10 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("oscreter@gmail.com");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -16,7 +14,9 @@ export default function LoginPage() {
     const response = await fetch("/api/session/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
     const body = await response.json() as { error?: string };
     if (!response.ok) { setError(body.error ?? "Unable to sign in."); setLoading(false); return; }
-    router.replace("/dashboard"); router.refresh();
+    // A full navigation ensures the freshly-issued HTTP-only session cookie
+    // is included when the protected server dashboard is loaded.
+    window.location.assign("/dashboard");
   }
 
   return <main className="shell"><form className="auth-card" onSubmit={signIn}>
